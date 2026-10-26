@@ -207,11 +207,14 @@ jobs:
           TAG="${GITHUB_REF_NAME}"
           if [[ "$TAG" != v* ]]; then TAG="${{ inputs.source_ref || 'snapshot' }}"; fi
           mkdir -p release-files
-          f=$(find dist-out -name "*.dmg" | head -1) && cp "$f" "release-files/YuDuan-main_${TAG}_macos.dmg"
-          cp dist-out/windows-client/yuduan-main.exe "release-files/YuDuan-main_${TAG}_windows.exe"
-          cp dist-out/windows-client/yuduan-agent.exe "release-files/YuDuan-agent_${TAG}_windows.exe"
-          cp dist-out/hub-all/*.tar.gz release-files/
-          cp dist-out/hub-all/*.zip release-files/
+          dmg=$(find dist-out -name "*.dmg" | head -1)
+          mainexe=$(find dist-out/windows-client -name "yuduan-main.exe" | head -1)
+          agentexe=$(find dist-out/windows-client -name "yuduan-agent.exe" | head -1)
+          echo "dmg=$dmg"; echo "main=$mainexe"; echo "agent=$agentexe"
+          cp "$dmg" "release-files/YuDuan-main_${TAG}_macos.dmg"
+          cp "$mainexe" "release-files/YuDuan-main_${TAG}_windows.exe"
+          cp "$agentexe" "release-files/YuDuan-agent_${TAG}_windows.exe"
+          cp dist-out/hub-all/*.tar.gz dist-out/hub-all/*.zip release-files/
           ls -la release-files/
 
       - name: 发布 Release 到本仓库
