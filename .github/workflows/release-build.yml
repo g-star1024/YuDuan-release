@@ -127,6 +127,7 @@ jobs:
       - name: Build 副端 agent（macOS 双架构）
         working-directory: rust/agent
         run: |
+          mkdir -p dist-out
           rustc -O src/main.rs -o dist-out/yuduan-agent-arm64
           rustc -O --target x86_64-apple-darwin src/main.rs -o dist-out/yuduan-agent-x64
           ls -la dist-out/
