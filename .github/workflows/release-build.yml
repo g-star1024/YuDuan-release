@@ -158,8 +158,27 @@ jobs:
         working-directory: main
         shell: pwsh
         run: |
-          npm ci
-          npx tauri build --no-bundle
+          npm ci 2>&1 | tee build-main.log
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          npx tauri build --no-bundle 2>&1 | tee -a build-main.log
+          if ($LASTEXITCODE -ne 0) {
+            Write-Output "==================== 构建失败，日志尾部 80 行 ===================="
+            Get-Content build-main.log -Tail 80 | ForEach-Object { Write-Output "::error::$_" }
+            exit 1
+          }
+
+      - name: 失败时推日志到 ci-logs-win 分支
+        if: failure()
+        working-directory: main
+        shell: pwsh
+        run: |
+          git config user.email "ci@yuduan.local"
+          git config user.name "ci-logger"
+          git checkout --orphan ci-logs-win
+          git rm -rf --cached . 2>$null
+          git add build-main.log
+          git commit -m "windows main build log"
+          git push -f origin ci-logs-win
 
       - uses: actions/upload-artifact@v4
         with:
