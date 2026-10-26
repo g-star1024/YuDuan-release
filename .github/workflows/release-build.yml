@@ -114,17 +114,29 @@ jobs:
           cache-dependency-path: main/package-lock.json
 
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-apple-darwin  # macos-latest 为 arm64 runner，Intel 版交叉构建
 
-      - name: Build 主端（macOS dmg）
+      - name: Build 主端（macOS dmg，双架构）
         working-directory: main
         run: |
           npm ci
           npx tauri build
+          npx tauri build --target x86_64-apple-darwin
+
+      - name: Build 副端 agent（macOS 双架构）
+        working-directory: rust/agent
+        run: |
+          rustc -O src/main.rs -o dist-out/yuduan-agent-arm64
+          rustc -O --target x86_64-apple-darwin src/main.rs -o dist-out/yuduan-agent-x64
+          ls -la dist-out/
 
       - name: Collect artifacts
         run: |
           mkdir -p dist-out
           cp main/src-tauri/target/release/bundle/dmg/*.dmg dist-out/
+          cp main/src-tauri/target/x86_64-apple-darwin/release/bundle/dmg/*.dmg dist-out/
+          cp rust/agent/dist-out/yuduan-agent-arm64 rust/agent/dist-out/yuduan-agent-x64 dist-out/
 
       - uses: actions/upload-artifact@v4
         with:
@@ -207,13 +219,17 @@ jobs:
           TAG="${GITHUB_REF_NAME}"
           if [[ "$TAG" != v* ]]; then TAG="${{ inputs.source_ref || 'snapshot' }}"; fi
           mkdir -p release-files
-          dmg=$(find dist-out -name "*.dmg" | head -1)
+          dmg_arm=$(find dist-out -name "*aarch64*.dmg" | head -1)
+          dmg_x64=$(find dist-out -name "*x64*.dmg" | head -1)
           mainexe=$(find dist-out/windows-client -name "yuduan-main.exe" | head -1)
           agentexe=$(find dist-out/windows-client -name "yuduan-agent.exe" | head -1)
-          echo "dmg=$dmg"; echo "main=$mainexe"; echo "agent=$agentexe"
-          cp "$dmg" "release-files/YuDuan-main_${TAG}_macos.dmg"
+          echo "dmg_arm=$dmg_arm"; echo "dmg_x64=$dmg_x64"; echo "main=$mainexe"; echo "agent=$agentexe"
+          cp "$dmg_arm" "release-files/YuDuan-main_${TAG}_macos_arm64.dmg"
+          cp "$dmg_x64" "release-files/YuDuan-main_${TAG}_macos_x64.dmg"
           cp "$mainexe" "release-files/YuDuan-main_${TAG}_windows.exe"
           cp "$agentexe" "release-files/YuDuan-agent_${TAG}_windows.exe"
+          cp dist-out/macos-client/yuduan-agent-arm64 "release-files/YuDuan-agent_${TAG}_macos_arm64"
+          cp dist-out/macos-client/yuduan-agent-x64 "release-files/YuDuan-agent_${TAG}_macos_x64"
           cp dist-out/hub-all/*.tar.gz dist-out/hub-all/*.zip release-files/
           ls -la release-files/
 
@@ -229,9 +245,9 @@ jobs:
             --notes "御端发布 $TAG
 
           ## 客户端
-          - macOS 主端：YuDuan-main_${TAG}_macos.dmg（未签名，首次打开请右键 → 打开）
+          - macOS 主端：YuDuan-main_${TAG}_macos_arm64.dmg（Apple Silicon）/ _macos_x64.dmg（Intel）——未签名，首次打开请右键 → 打开
           - Windows 主端：YuDuan-main_${TAG}_windows.exe（免安装，直接运行）
-          - Windows 副端：YuDuan-agent_${TAG}_windows.exe（MSVC 原生构建；启动后 UDP 自动发现中枢并注册，无需配置）
+          - Windows 副端：YuDuan-agent_${TAG}_windows.exe；macOS 副端：YuDuan-agent_${TAG}_macos_arm64 / _macos_x64（MSVC/Rust 原生构建；启动后 UDP 自动发现中枢并注册，无需配置）
 
           ## 中枢（Linux / Windows / macOS）
           - YuDuan-hub_${TAG}_linux_amd64|arm64.tar.gz：systemd 部署，tar 解包 → sudo ./install.sh
