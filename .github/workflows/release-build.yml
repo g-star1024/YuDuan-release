@@ -220,10 +220,11 @@ jobs:
       - name: 发布 Release 到本仓库
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: g-star1024/YuDuan-release  # publish 无 checkout，必须显式指定仓库
         run: |
           TAG="${GITHUB_REF_NAME}"
           if [[ "$TAG" != v* ]]; then TAG="${{ inputs.source_ref || 'snapshot' }}"; fi
-          gh release create "$TAG" release-files/* \
+          if ! gh release create "$TAG" release-files/* \
             --title "御端 $TAG" \
             --notes "御端发布 $TAG
 
@@ -238,5 +239,9 @@ jobs:
           - YuDuan-hub_${TAG}_macos_arm64|amd64.tar.gz：launchd 部署，sudo ./install-macos.sh
           - 均内含配置模板与 README-deploy.md（防火墙端口 / 生产检查清单 / 升级步骤）
 
-          对应源码版本见私有仓 g-star1024/YuDuan 标签 $TAG。" \
-          || gh release upload "$TAG" release-files/* --clobber
+          对应源码版本见私有仓 g-star1024/YuDuan 标签 $TAG。"; then
+            echo "::error::gh release create 失败，尝试向既有 release 追加资产"
+            gh release view "$TAG" || gh release create "$TAG" --title "御端 $TAG" --notes "御端发布 $TAG"
+            gh release upload "$TAG" release-files/* --clobber
+          fi
+          gh release view "$TAG" --json name,assets -q '.name + " assets=" + (.assets | length | tostring)'
