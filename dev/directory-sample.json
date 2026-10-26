@@ -1,0 +1,14 @@
+{
+  "users": [
+    { "username": "alice",  "display_name": "Alice Wang",  "email": "alice@corp.local",  "member_of": ["yd-admins"],    "disabled": false },
+    { "username": "bob",    "display_name": "Bob Li",      "email": "bob@corp.local",    "member_of": ["yd-operators"], "disabled": false },
+    { "username": "carol",  "display_name": "Carol Chen",  "email": "carol@corp.local",  "member_of": ["yd-viewers"],   "disabled": false },
+    { "username": "dave",   "display_name": "Dave Zhao",   "email": "dave@corp.local",   "member_of": [],               "disabled": false },
+    { "username": "eve",    "display_name": "Eve Sun",     "email": "eve@corp.local",    "member_of": ["yd-admins"],    "disabled": true }
+  ],
+  "groups": [
+    { "name": "yd-admins" },
+    { "name": "yd-operators" },
+    { "name": "yd-viewers" }
+  ]
+}

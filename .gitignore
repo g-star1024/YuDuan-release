@@ -1,0 +1,35 @@
+# 御端 YuDuan — 仓库忽略规则
+
+# 内部运维记忆与开发交接日志（非交付物，含本地路径等敏感信息）
+.workbuddy/memory/
+
+# 操作系统 / 编辑器碎片
+.DS_Store
+Thumbs.db
+*.swp
+
+# 编译产物（Go 构建二进制，按需本地生成）
+dev/bin/
+*.exe
+
+# 运行时数据（软件仓库落盘、Agent 临时下载/解包，非源码）
+dev/data/
+
+# TLS 自签证书（本地/测试生成，含私钥，禁止入库）
+dev/certs/
+*.pem
+
+# Rust 副端编译产物（rustc 离线构建输出）
+rust/agent/target/
+
+# SCA 扫描器编译产物（本地生成的静态分析二进制）
+dev/sca
+
+# 编码器/测试编译产物（源码与 build.sh 入库，二进制不入）
+dev/encoder-vt/*.dylib
+dev/encoder-vt/harness
+main/decoder-vt/*.dylib
+main/decoder-vt/harness
+
+# Rust 副端：正式构建走 rustc（无 cargo 依赖）；Cargo.lock 仅为本地单测副产物
+rust/agent/Cargo.lock

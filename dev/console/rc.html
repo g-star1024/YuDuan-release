@@ -1,0 +1,511 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>御端 · 远程控制（M4 演示）</title>
+  <style>
+    :root { --bg:#f4f5fa; --card:#fff; --line:#e4e7ef; --text:#1f2430; --muted:#6b7280; --brand:#1e3a8a; --ok:#16a34a; --warn:#d97706; }
+    * { box-sizing:border-box; }
+    body { margin:0; font-family:-apple-system,"PingFang SC","Microsoft YaHei",Helvetica,Arial,sans-serif; background:var(--bg); color:var(--text); }
+    header { padding:16px 24px; background:var(--brand); color:#fff; display:flex; align-items:center; justify-content:space-between; }
+    header h1 { font-size:18px; margin:0; font-weight:600; }
+    nav a { color:#fff; margin-left:16px; text-decoration:none; font-size:13px; opacity:.9; }
+    nav a:hover { opacity:1; }
+    header .sub { font-size:12px; opacity:.8; }
+    main { padding:20px 24px; max-width:1200px; margin:0 auto; }
+    .bar { display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-bottom:14px; }
+    select, input, button { padding:8px 10px; border:1px solid var(--line); border-radius:10px; font-size:13px; background:#fff; }
+    button { background:var(--brand); color:#fff; border:none; cursor:pointer; }
+    button:hover { opacity:.92; }
+    button.ghost { background:#fff; color:var(--brand); border:1px solid var(--brand); }
+    .layout { display:flex; gap:16px; }
+    .screen { flex:1; background:#0f172a; border-radius:14px; padding:8px; min-height:520px; display:flex; align-items:center; justify-content:center; }
+    canvas { max-width:100%; max-height:520px; border-radius:8px; background:#000; cursor:crosshair; }
+    .side { width:320px; display:flex; flex-direction:column; gap:14px; }
+    .card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:14px; }
+    .card h3 { font-size:14px; margin:0 0 8px; }
+    .log { font-size:12px; color:var(--muted); height:300px; overflow:auto; background:#0f172a; color:#e2e8f0; border-radius:10px; padding:10px; white-space:pre-wrap; }
+    .hint { font-size:12px; color:var(--muted); }
+    .status { font-size:12px; color:var(--warn); }
+  </style>
+</head>
+<body>
+  <header>
+    <div><h1>御端 · 远程控制</h1><div class="sub">操作员：<span id="role">-</span></div></div>
+    <nav><a href="/">资产管理</a><a href="/software.html">软件分发</a><a href="/audit.html">审计</a><a href="#" id="logout">退出</a></nav>
+  </header>
+  <main>
+    <div class="bar">
+      <select id="deviceSel"><option value="">选择被控设备…</option></select>
+      <select id="codecSel" title="编解码器（来自被控端能力宣告；P2P 直连为主端能力，浏览器经中枢二进制中继）"></select>
+      <button id="startBtn">发起远控</button>
+      <button id="renegoBtn" class="ghost" disabled>重新协商</button>
+      <button id="stopBtn" class="ghost">结束会话</button>
+      <span title="§8.3.9 带宽自适应：主端反馈目标帧率，被控端逐轮应用">
+        <input type="checkbox" id="qosAuto" checked>自适应
+        <input type="range" id="fpsRange" min="2" max="30" value="15" style="width:90px;vertical-align:middle" disabled>
+        <span id="fpsVal">15</span> fps
+      </span>
+      <span id="status" class="status"></span>
+    </div>
+    <div class="layout">
+      <div class="screen"><canvas id="screen" width="1280" height="800"></canvas></div>
+      <div class="side">
+        <div class="card">
+          <h3>媒体通道</h3>
+          <div id="stats" class="hint">—</div>
+        </div>
+        <div class="card">
+          <h3>操作提示</h3>
+          <p class="hint">在画面内移动/点击鼠标、键入字符即向被控端发送输入。被控端会弹出远端提示，员工可拒绝。</p>
+        </div>
+        <div class="card">
+          <h3>会话事件 / 合规日志</h3>
+          <div id="log" class="log">—</div>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <script src="auth.js"></script>
+  <script>
+    let ws = null;
+    let sessionID = null;
+    let frameW = 1280, frameH = 800;
+    const canvas = document.getElementById('screen');
+    const ctx = canvas.getContext('2d');
+    const logEl = document.getElementById('log');
+    const statusEl = document.getElementById('status');
+
+    // —— §8.3 二进制媒体帧（与 Rust rc_media 24B 小端头一致）——
+    const CODEC_NAMES = ['raw_rgba', 'jpeg', 'h264', 'h265', 'vp8', 'vp9', 'av1'];
+    const FRAME_MAGIC = 0x59445946;      // 'YDYF' 小端
+    const FRAME_HEADER_LEN = 24;
+    let mediaCodec = 1;                  // 当前协商编码（默认 jpeg）
+    let mediaTransport = 'relay';        // 浏览器无法监听裸 TCP：固定经中枢二进制中继
+    let frameTimes = [];                 // 近 5s 帧到达时刻（fps）
+    let byteWindow = [];                 // 近 1s 帧载荷（码率）
+    // —— §8.3.15 媒体实测（丢包率反馈）——
+    let lastFrameSeq = null;             // 上一帧序号（24B 头 seq 域，uint32 单调递增）
+    let lossFrames = 0;                  // 序号缺口累计丢帧数
+    let totalFrames = 0;                 // 已收帧数（丢包率分母）
+    // —— §8.3.9 带宽自适应（rc_qos 反馈闭环）——
+    let capsFps = 15;                    // 被控端能力宣告的帧率上限
+    let qosFps = null;                   // 当前反馈给被控端的目标帧率（null=尚未反馈）
+    let renderCosts = [];                // 近 20 帧「到达→绘制」耗时（ms）
+    let qosHealthyRounds = 0;            // 连续健康评估轮数（升档计数）
+    let qosLastSent = 0;                 // 上次发送 rc_qos 的时刻（节流 3s）
+    // —— §8.3.11 传输级自适应（RTT 探测）——
+    let lastRtt = null;                  // 最近一次实测媒体路径 RTT（ms，null=未探测）
+    let rttTimer = null;                 // rc_ping 周期定时器
+
+    function log(msg) {
+      const t = new Date().toLocaleTimeString('zh-CN');
+      logEl.textContent += `[${t}] ${msg}\n`;
+      logEl.scrollTop = logEl.scrollHeight;
+    }
+
+    // 收到被控端能力宣告：填充编解码器下拉，按浏览器偏好自动选（jpeg 优先，原生可渲染）。
+    function populateCodecs(codecs) {
+      const list = (codecs && codecs.length) ? codecs.slice() : [1];
+      const pref = [1, 0, 2, 3, 4, 5, 6];
+      const sel = document.getElementById('codecSel');
+      sel.innerHTML = list.map(c => `<option value="${c}">${CODEC_NAMES[c] || ('codec:' + c)}</option>`).join('');
+      const pick = pref.find(c => list.includes(c));
+      mediaCodec = (pick === undefined) ? list[0] : pick;
+      sel.value = String(mediaCodec);
+    }
+
+    // 发送协商结果（rc_select）：浏览器固定 transport=relay；P2P 直连由主端（Tauri）使用。
+    function sendSelect() {
+      if (!ws || !sessionID) return;
+      const codec = parseInt(document.getElementById('codecSel').value, 10) || mediaCodec;
+      mediaCodec = codec;
+      const env = { ver: 1, msg_id: 'm' + Date.now(), ts: Math.floor(Date.now() / 1000), type: 'rc_select', seq: 1,
+        payload: { session_id: sessionID, codec, transport: mediaTransport } };
+      ws.send(JSON.stringify(env));
+      log(`已发送协商：${CODEC_NAMES[codec] || codec} / ${mediaTransport}`);
+    }
+
+    // 二进制媒体帧统计（fps / 码率）。
+    function countFrame(bytes, codec) {
+      const now = Date.now();
+      frameTimes.push(now);
+      byteWindow.push({ t: now, b: bytes });
+      while (frameTimes.length && now - frameTimes[0] > 5000) frameTimes.shift();
+      while (byteWindow.length && now - byteWindow[0].t > 1000) byteWindow.shift();
+      const fps = (frameTimes.length / 5).toFixed(1);
+      const kbps = (byteWindow.reduce((s, x) => s + x.b, 0) / 1024).toFixed(0);
+      const lossPct = totalFrames > 0 ? Math.floor(lossFrames * 100 / (totalFrames + lossFrames)) : 0;
+      document.getElementById('stats').textContent =
+        `通道：${mediaTransport} · 编码：${CODEC_NAMES[codec] || codec} · 分辨率：${frameW}×${frameH} · ${fps} fps · ${kbps} KB/s` +
+        (lossFrames > 0 ? ` · 丢包 ${lossPct}%` : '') +
+        (lastRtt !== null ? ` · RTT ${lastRtt}ms` : '');
+    }
+
+    // —— §8.3.9 带宽自适应：rc_qos 反馈闭环（主端实测 → 被控端逐轮应用）——
+    function sendQos(fps, reason) {
+      if (!ws || !sessionID) return;
+      qosFps = fps;
+      qosLastSent = Date.now();
+      const payload = { session_id: sessionID, fps, reason };
+      if (lastRtt !== null) payload.rtt_ms = lastRtt; // §8.3.11：顺带反馈实测 RTT，副端按档位夹上限
+      // §8.3.15：顺带反馈实测丢包率（序号缺口）与接收码率（1s 窗口），
+      // 副端按丢包档位夹帧率 + 码率阶梯重参数化（原生 set_bitrate / JPEG 质量闭环）。
+      if (totalFrames > 0) payload.loss_pct = Math.floor(lossFrames * 100 / (totalFrames + lossFrames));
+      const winBytes = byteWindow.reduce((s, x) => s + x.b, 0);
+      if (winBytes > 0) payload.kbps = Math.round(winBytes * 8 / 1000);
+      const env = { ver: 1, msg_id: 'm' + Date.now(), ts: Math.floor(Date.now() / 1000), type: 'rc_qos', seq: 1,
+        payload };
+      ws.send(JSON.stringify(env));
+      document.getElementById('fpsVal').textContent = String(fps || capsFps);
+      const meas = (payload.loss_pct !== undefined || payload.kbps !== undefined)
+        ? `，丢包 ${payload.loss_pct ?? 0}% / ${payload.kbps ?? 0} kbps` : '';
+      log(`已发送 rc_qos：${fps === 0 ? '恢复默认' : fps + ' fps'}（${reason}${lastRtt !== null ? '，RTT ' + lastRtt + 'ms' : ''}${meas}）`);
+    }
+
+    // —— §8.3.11 传输级自适应：rc_ping/rc_pong RTT 探测（每 2s，会话内持续）——
+    function startRttProbe() {
+      stopRttProbe();
+      rttTimer = setInterval(() => {
+        if (!ws || ws.readyState !== 1 || !sessionID) return;
+        const env = { ver: 1, msg_id: 'm' + Date.now(), ts: Math.floor(Date.now() / 1000), type: 'rc_ping', seq: 1,
+          payload: { session_id: sessionID, t0: Date.now() } };
+        ws.send(JSON.stringify(env));
+      }, 2000);
+    }
+    function stopRttProbe() { if (rttTimer) { clearInterval(rttTimer); rttTimer = null; } }
+
+    function noteRtt(rtt) {
+      lastRtt = rtt;
+      maybeAdaptQos(); // RTT 恶化即刻参与自适应评估（不等下一帧渲染统计）
+    }
+
+    // 记录一帧「到达→绘制完成」耗时（客户端自适应信号）。
+    function noteRenderCost(ms) {
+      renderCosts.push(ms);
+      if (renderCosts.length > 20) renderCosts.shift();
+      maybeAdaptQos();
+    }
+
+    // 自适应评估（≥3s 一次）：解码/渲染耗时逼近帧预算→降档（防持续积压）；
+    // 长期宽裕→缓慢升档（不超过被控端能力上限，避免打回拥塞）。
+    function maybeAdaptQos() {
+      if (!document.getElementById('qosAuto').checked || !ws || !sessionID) return;
+      const now = Date.now();
+      if (now - qosLastSent < 3000 || renderCosts.length < 5) return;
+      const cur = (qosFps === null) ? capsFps : qosFps;
+      const avg = renderCosts.reduce((s, x) => s + x, 0) / renderCosts.length;
+      const budget = 1000 / Math.max(cur, 1);
+      // §8.3.11：RTT 恶化（>250ms）优先降档——网络层信号比渲染耗时更早暴露拥塞
+      if (lastRtt !== null && lastRtt > 250 && cur > 2) {
+        sendQos(Math.max(2, Math.floor(cur * 0.7)), 'rtt_probe');
+        qosHealthyRounds = 0;
+        return;
+      }
+      if (avg > budget * 0.8 && cur > 2) {
+        sendQos(Math.max(2, Math.floor(cur * 0.7)), 'auto_adapt');
+        qosHealthyRounds = 0;
+      } else if (avg < budget * 0.4) {
+        if (++qosHealthyRounds >= 5 && cur < capsFps) {
+          sendQos(Math.min(capsFps, cur + 2), 'auto_adapt');
+          qosHealthyRounds = 0;
+        }
+      } else {
+        qosHealthyRounds = 0;
+      }
+    }
+
+    // QoS 控件：自适应开关 + 手动帧率滑杆（手动=立即反馈 user_slider）。
+    document.getElementById('qosAuto').onchange = (e) => {
+      const manual = !e.target.checked;
+      document.getElementById('fpsRange').disabled = !manual;
+      if (manual) sendQos(parseInt(document.getElementById('fpsRange').value, 10), 'user_slider');
+      // 切回自适应：清空历史信号，从当前值重新评估
+      renderCosts = []; qosHealthyRounds = 0;
+    };
+    document.getElementById('fpsRange').oninput = (e) => {
+      document.getElementById('fpsVal').textContent = e.target.value;
+      if (document.getElementById('qosAuto').checked) return; // 自适应模式下滑杆只读展示
+      sendQos(parseInt(e.target.value, 10), 'user_slider');
+    };
+
+    // 解析并渲染一帧二进制媒体帧（§8.3：24B 小端头 + payload）。
+    function renderBinaryFrame(buf) {
+      const t0 = performance.now(); // 自适应信号：到达→绘制完成耗时（§8.3.9）
+      if (buf.byteLength < FRAME_HEADER_LEN) { log('二进制帧过短，丢弃'); return; }
+      const dv = new DataView(buf);
+      if (dv.getUint32(0, true) !== FRAME_MAGIC) { log('二进制帧 magic 不匹配，丢弃'); return; }
+      const version = dv.getUint8(4);
+      if (version !== 1) { log(`不支持的帧版本 ${version}`); return; }
+      const stream = dv.getUint8(5);
+      const codec = dv.getUint8(6);
+      const flags = dv.getUint8(7);
+      const seq = dv.getUint32(8, true);
+      const w = dv.getUint16(12, true);
+      const h = dv.getUint16(14, true);
+      const len = dv.getUint32(20, true);
+      if (buf.byteLength < FRAME_HEADER_LEN + len) { log('二进制帧载荷截断，丢弃'); return; }
+      if (stream !== 0) return; // 仅屏幕流
+      if (w > 0 && h > 0) { frameW = w; frameH = h; }
+      countFrame(len, codec);
+      // §8.3.15 丢包实测：按帧序号缺口累计（TCP 传输下正常无缺口，机制对齐弱网/未来 UDP 路径）。
+      // 大跳（>1000，如会话重启 seq 归零）不计丢包。
+      if (lastFrameSeq !== null) {
+        const gap = (seq - lastFrameSeq) >>> 0;
+        if (gap > 1 && gap < 1000) lossFrames += gap - 1;
+      }
+      lastFrameSeq = seq;
+      totalFrames++;
+      if (codec === 1) {
+        // JPEG：Blob → Image → 画布（与 JSON 兜底路径同渲染，省去 base64 开销）
+        const blob = new Blob([new Uint8Array(buf, FRAME_HEADER_LEN, len)], { type: 'image/jpeg' });
+        const url = URL.createObjectURL(blob);
+        const img = new Image();
+        img.onload = () => { ctx.drawImage(img, 0, 0, canvas.width, canvas.height); URL.revokeObjectURL(url); noteRenderCost(performance.now() - t0); };
+        img.onerror = () => { URL.revokeObjectURL(url); };
+        img.src = url;
+      } else if (codec === 0 && w > 0 && h > 0) {
+        // RAW_RGBA：直接 putImageData
+        if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; }
+        ctx.putImageData(new ImageData(new Uint8ClampedArray(buf, FRAME_HEADER_LEN, len), w, h), 0, 0);
+        noteRenderCost(performance.now() - t0);
+      } else if (codec >= 2 && codec <= 6) {
+        // 原生码流（h264/h265/vp8/vp9/av1）：优先 WebCodecs 解码渲染；
+        // 不可用/失败（如验证桩码流）自动回退帧统计展示。
+        if (!decodeNativeFrame(codec, new Uint8Array(buf, FRAME_HEADER_LEN, len), seq, flags, w, h)) {
+          statusEl.textContent = `${CODEC_NAMES[codec] || codec} 帧 #${seq}（WebCodecs 不可用/解码失败，仅统计）`;
+        }
+        noteRenderCost(performance.now() - t0);
+      } else {
+        statusEl.textContent = `未知编解码器 ${codec} 帧 #${seq}`;
+      }
+    }
+
+    // —— 原生码流 WebCodecs 解码（浏览器参考台；主端 Tauri 用原生解码器）——
+    let vDecoder = null, vDecoderCodec = 0, vDecoderFailed = false;
+
+    function webCodecsMime(codec) {
+      switch (codec) {
+        case 2: return 'avc1.42E01E';        // H.264 baseline 3.1（保守兼容）
+        case 3: return 'hvc1.1.6.L93.B0';    // H.265 main
+        case 4: return 'vp08.00.10.08';      // VP8
+        case 5: return 'vp09.00.10.08';      // VP9 profile 0
+        case 6: return 'av01.0.04M.08';      // AV1 main 0 level 4
+        default: return null;
+      }
+    }
+
+    // Annex-B 流拆分 NAL（起始码 00 00 01 / 00 00 00 01）；返回 [{type, data}]。
+    function splitAnnexB(u8) {
+      const nals = [];
+      let i = 0, start = -1;
+      while (i + 2 < u8.length) {
+        if (u8[i] === 0 && u8[i + 1] === 0 && u8[i + 2] === 1) {
+          if (start >= 0) nals.push({ type: u8[start] & 0x1f, data: u8.subarray(start, i) });
+          i += 3; start = i;
+        } else if (i + 3 < u8.length && u8[i] === 0 && u8[i + 1] === 0 && u8[i + 2] === 0 && u8[i + 3] === 1) {
+          if (start >= 0) nals.push({ type: u8[start] & 0x1f, data: u8.subarray(start, i) });
+          i += 4; start = i;
+        } else { i++; }
+      }
+      if (start >= 0 && start < u8.length) nals.push({ type: u8[start] & 0x1f, data: u8.subarray(start) });
+      return nals;
+    }
+
+    // H.264：从 Annex-B 提取 SPS(7)/PPS(8) 组 avcC description（无则 null）。
+    function h264Description(u8) {
+      const sps = splitAnnexB(u8).find(n => n.type === 7);
+      const pps = splitAnnexB(u8).find(n => n.type === 8);
+      if (!sps || !pps || sps.data.length < 4) return null;
+      const s = sps.data, p = pps.data;
+      const d = new Uint8Array(11 + s.length + p.length);
+      let o = 0;
+      d[o++] = 1;                      // configurationVersion
+      d[o++] = s[1]; d[o++] = s[2]; d[o++] = s[3]; // profile/compat/level
+      d[o++] = 0xFF;                   // lengthSizeMinusOne=3（4 字节长度前缀）
+      d[o++] = 0xE1;                   // numOfSPS=1
+      d[o++] = (s.length >> 8) & 0xFF; d[o++] = s.length & 0xFF;
+      d.set(s, o); o += s.length;
+      d[o++] = 1;                      // numOfPPS=1
+      d[o++] = (p.length >> 8) & 0xFF; d[o++] = p.length & 0xFF;
+      d.set(p, o);
+      return d;
+    }
+
+    // Annex-B → 4 字节大端长度前缀NAL（EncodedVideoChunk 需要 avcC 风格，无起始码）。
+    function annexBToAvcc(u8) {
+      const nals = splitAnnexB(u8);
+      if (!nals.length) return null;
+      let total = 0;
+      for (const n of nals) total += 4 + n.data.length;
+      const out = new Uint8Array(total);
+      let o = 0;
+      for (const n of nals) {
+        out[o++] = (n.data.length >> 24) & 0xFF; out[o++] = (n.data.length >> 16) & 0xFF;
+        out[o++] = (n.data.length >> 8) & 0xFF; out[o++] = n.data.length & 0xFF;
+        out.set(n.data, o); o += n.data.length;
+      }
+      return out;
+    }
+
+    function ensureDecoder(codec, u8) {
+      if (vDecoder && vDecoderCodec === codec && vDecoder.state === 'configured') return vDecoder;
+      if (vDecoder) { try { vDecoder.close(); } catch (e) {} vDecoder = null; }
+      if (!('VideoDecoder' in window)) { vDecoderFailed = true; return null; }
+      try {
+        const cfg = { codec: webCodecsMime(codec), optimizeForLatency: true };
+        if (codec === 2) { const desc = h264Description(u8); if (desc) cfg.description = desc; }
+        const d = new VideoDecoder({
+          output: (frame) => {
+            try {
+              if (canvas.width !== frame.displayWidth || canvas.height !== frame.displayHeight) {
+                canvas.width = frame.displayWidth; canvas.height = frame.displayHeight;
+              }
+              ctx.drawImage(frame, 0, 0, canvas.width, canvas.height);
+            } finally { frame.close(); }
+          },
+          error: (e) => { vDecoderFailed = true; log(`WebCodecs 解码失败，回退统计: ${e.message || e}`); },
+        });
+        d.configure(cfg);
+        vDecoder = d; vDecoderCodec = codec;
+        return d;
+      } catch (e) {
+        vDecoderFailed = true;
+        log(`WebCodecs 初始化失败，回退统计: ${e.message || e}`);
+        return null;
+      }
+    }
+
+    // 解码一帧原生码流；返回 false = 应回退统计展示（不可用/失败）。
+    function decodeNativeFrame(codec, u8, seq, flags, w, h) {
+      if (vDecoderFailed) return false;
+      const d = ensureDecoder(codec, u8);
+      if (!d || d.state !== 'configured') return false;
+      const data = annexBToAvcc(u8);
+      if (!data) return false;
+      // 关键帧判定：H.264 找 IDR(5)/SPS(7)/PPS(8)；其余用帧头 keyframe 标志。
+      const nals = splitAnnexB(u8);
+      const isKey = codec === 2
+        ? nals.some(n => n.type === 5 || n.type === 7 || n.type === 8)
+        : (flags & 1) !== 0;
+      try {
+        d.decode(new EncodedVideoChunk({ type: isKey ? 'key' : 'delta', timestamp: seq * 1000, data }));
+        return true;
+      } catch (e) {
+        vDecoderFailed = true;
+        log(`WebCodecs 送帧失败，回退统计: ${e.message || e}`);
+        return false;
+      }
+    }
+
+    // 会话结束/重新协商时重置 WebCodecs 解码器（新会话重新 configure）。
+    function resetWebCodecs() {
+      if (vDecoder) { try { vDecoder.close(); } catch (e) {} vDecoder = null; }
+      vDecoderCodec = 0; vDecoderFailed = false;
+    }
+
+    async function refreshDevices() {
+      const dev = await api('/api/v1/devices');
+      const sel = document.getElementById('deviceSel');
+      sel.innerHTML = '<option value="">选择被控设备…</option>' +
+        (dev.devices || []).map(d => `<option value="${d.id}">${d.hostname} (${d.os}/${d.arch}) ${d.online?'在线':'离线'}</option>`).join('');
+    }
+
+    function connect() {
+      if (ws) ws.close();
+      const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+      ws = new WebSocket(`${proto}://${location.host}/ws/viewer`);
+      ws.binaryType = 'arraybuffer'; // 二进制媒体帧按 ArrayBuffer 收取（§8.3）
+      ws.onmessage = (ev) => {
+        // 二进制媒体帧（协商后的 P2P/中继通道）
+        if (ev.data instanceof ArrayBuffer) { renderBinaryFrame(ev.data); return; }
+        const env = JSON.parse(ev.data);
+        if (env.type === 'rc_frame') {
+          const p = env.payload;
+          frameW = p.width; frameH = p.height;
+          const img = new Image();
+          img.onload = () => ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+          img.src = 'data:image/jpeg;base64,' + p.data;
+        } else if (env.type === 'rc_capabilities') {
+          const p = env.payload || {};
+          log(`被控端能力：${(p.codecs || []).map(c => CODEC_NAMES[c] || c).join('/')} ${p.max_w || '?'}×${p.max_h || '?'}@${p.fps || '?'}fps`);
+          capsFps = p.fps || 15; // §8.3.9 自适应上限
+          populateCodecs(p.codecs || []);
+          sendSelect(); // 收到能力即按偏好协商二进制帧通道
+          startRttProbe(); // 会话内持续 RTT 探测（§8.3.11）
+          document.getElementById('renegoBtn').disabled = false;
+        } else if (env.type === 'rc_event') {
+          const p = env.payload;
+          log(`事件[${p.kind}]: ${p.message}` + (p.require_consent ? '（需员工确认）' : ''));
+          if (p.kind === 'consent_required') statusEl.textContent = '等待员工确认…';
+          if (p.kind === 'consent_granted') statusEl.textContent = '已获授权，画面传输中';
+          if (p.kind === 'media_selected') statusEl.textContent = p.message;
+          if (p.kind === 'error') statusEl.textContent = p.message;
+        } else if (env.type === 'rc_ready') {
+          log(`被控端就绪 ok=${env.payload.ok}`);
+        } else if (env.type === 'rc_pong') {
+          // §8.3.11：RTT 探测应答（副端回显 t0）
+          noteRtt(Date.now() - (env.payload.t0 || 0));
+        } else if (env.type === 'rc_stop') {
+          log('会话已结束');
+          resetWebCodecs();
+          stopRttProbe();
+          document.getElementById('renegoBtn').disabled = true;
+        }
+      };
+      ws.onclose = () => log('viewer 连接关闭');
+    }
+
+    document.getElementById('startBtn').onclick = () => {
+      const id = document.getElementById('deviceSel').value;
+      if (!id) { alert('请先选择被控设备'); return; }
+      connect();
+      sessionID = 's-' + Math.random().toString(36).slice(2, 10);
+      const env = { ver:1, msg_id:'m'+Date.now(), ts:Math.floor(Date.now()/1000), type:'rc_request', seq:1,
+        payload:{ device_id:id, session_id:sessionID, operator:(window.YD_USER || 'admin') } };
+      ws.onopen = () => { ws.send(JSON.stringify(env)); log('已发送远控请求'); };
+    };
+
+    document.getElementById('stopBtn').onclick = () => {
+      if (ws && sessionID) {
+        const env = { ver:1, msg_id:'m'+Date.now(), ts:Math.floor(Date.now()/1000), type:'rc_stop', seq:1, payload:{ session_id:sessionID } };
+        ws.send(JSON.stringify(env));
+      }
+      if (ws) ws.close();
+      sessionID = null;
+      resetWebCodecs();
+      stopRttProbe();
+      lastRtt = null;
+      document.getElementById('renegoBtn').disabled = true;
+    };
+
+    document.getElementById('renegoBtn').onclick = () => { resetWebCodecs(); sendSelect(); };
+
+    function sendInput(kind, extra) {
+      if (!ws || !sessionID) return;
+      const env = { ver:1, msg_id:'m'+Date.now(), ts:Math.floor(Date.now()/1000), type:'rc_input', seq:1,
+        payload: Object.assign({ session_id:sessionID, kind }, extra) };
+      ws.send(JSON.stringify(env));
+    }
+
+    canvas.addEventListener('mousemove', (e) => {
+      const r = canvas.getBoundingClientRect();
+      const x = Math.round((e.clientX - r.left) / r.width * frameW);
+      const y = Math.round((e.clientY - r.top) / r.height * frameH);
+      sendInput('mouse_move', { x, y });
+    });
+    canvas.addEventListener('mousedown', (e) => sendInput('mouse_down', { button:e.button, x:0, y:0 }));
+    canvas.addEventListener('mouseup', (e) => sendInput('mouse_up', { button:e.button, x:0, y:0 }));
+    document.addEventListener('keydown', (e) => {
+      if (document.activeElement === canvas || e.target === document.body) {
+        sendInput('key_press', { key: e.key });
+      }
+    });
+
+    refreshDevices();
+    setInterval(refreshDevices, 5000);
+  </script>
+</body>
+</html>

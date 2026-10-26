@@ -1,0 +1,16 @@
+# 御端（YuDuan）终端统一管理平台 —— 生产副端（Rust 版）
+#
+# ⚠️ 离线构建说明：本机无网络，无法拉取 crates.io 任何依赖。
+# 因此 dependencies 故意留空，且本 crate 只用 Rust 标准库（std）。
+# 不要执行 `cargo build`（会因更新 registry 失败）；请使用离线 rustc 直接编译：
+#
+#   rustc -O src/main.rs -o target/agent
+#
+# （rustc 1.95+ 已预装，可直接调用。）
+[package]
+name = "yuduan-agent"
+version = "0.1.0"
+edition = "2021"
+
+# 故意不引入任何依赖：纯 std 实现 WebSocket 客户端、JSON 解析与资产采集。
+[dependencies]

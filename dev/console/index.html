@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>御端 · 管理控制台</title>
+  <style>
+    :root { --bg:#f4f5fa; --card:#ffffff; --line:#e4e7ef; --text:#1f2430; --muted:#6b7280; --brand:#1e3a8a; --ok:#16a34a; --off:#9ca3af; }
+    * { box-sizing: border-box; }
+    body { margin:0; font-family: -apple-system, "PingFang SC", "Microsoft YaHei", Helvetica, Arial, sans-serif; background:var(--bg); color:var(--text); }
+    header { padding:18px 24px; background:var(--brand); color:#fff; display:flex; align-items:center; justify-content:space-between; }
+    header h1 { font-size:18px; margin:0; font-weight:600; }
+    header .sub { font-size:12px; opacity:.8; }
+    nav { display:flex; gap:14px; align-items:center; }
+    nav a { color:#fff; text-decoration:none; font-size:13px; opacity:.9; }
+    main { padding:20px 24px; max-width:1100px; margin:0 auto; }
+    .cards { display:flex; gap:14px; margin-bottom:20px; }
+    .card { flex:1; background:var(--card); border:1px solid var(--line); border-radius:14px; padding:16px; }
+    .card .num { font-size:26px; font-weight:700; }
+    .card .lbl { font-size:12px; color:var(--muted); margin-top:4px; }
+    h2 { font-size:15px; margin:18px 0 10px; }
+    table { width:100%; border-collapse:collapse; background:var(--card); border:1px solid var(--line); border-radius:14px; overflow:hidden; }
+    th, td { text-align:left; padding:10px 12px; font-size:13px; border-bottom:1px solid var(--line); }
+    th { background:#fafbff; color:var(--muted); font-weight:600; }
+    .dot { display:inline-block; width:8px; height:8px; border-radius:50%; margin-right:6px; }
+    .on { background:var(--ok); } .off { background:var(--off); }
+    .toolbar { display:flex; gap:8px; margin:10px 0; flex-wrap:wrap; }
+    select, input, button { padding:8px 10px; border:1px solid var(--line); border-radius:10px; font-size:13px; background:#fff; }
+    button { background:var(--brand); color:#fff; border:none; cursor:pointer; }
+    button:hover { opacity:.92; }
+    pre { background:#0f172a; color:#e2e8f0; padding:12px; border-radius:10px; font-size:12px; max-height:220px; overflow:auto; white-space:pre-wrap; }
+    .empty { color:var(--muted); font-size:13px; padding:14px; }
+  </style>
+</head>
+<body>
+  <header>
+    <div><h1>御端 · 管理控制台</h1><div class="sub">企业终端统一管理平台 · <span id="role">角色：-</span></div></div>
+    <nav>
+      <a href="/rc.html">远程控制</a>
+      <a href="/software.html">软件分发</a>
+      <a href="/audit.html">审计日志</a>
+      <a href="#" id="logout">退出</a>
+    </nav>
+  </header>
+  <main>
+    <div class="cards">
+      <div class="card"><div class="num" id="total">0</div><div class="lbl">纳管设备</div></div>
+      <div class="card"><div class="num" id="online" style="color:var(--ok)">0</div><div class="lbl">在线</div></div>
+      <div class="card"><div class="num" id="offline" style="color:var(--off)">0</div><div class="lbl">离线</div></div>
+    </div>
+
+    <h2>资产台账</h2>
+    <div id="tableWrap"><div class="empty">加载中…</div></div>
+
+    <h2>指令下发（远控以外的 shell / 资产重采集）</h2>
+    <div class="toolbar">
+      <select id="deviceSel"><option value="">选择设备…</option></select>
+      <select id="actionSel">
+        <option value="shell">shell 命令</option>
+        <option value="collect">重新采集资产</option>
+      </select>
+      <input id="cmdInput" style="flex:1; min-width:200px;" placeholder="shell 模式输入命令，如：uname -a" />
+      <button id="sendBtn">下发</button>
+    </div>
+    <pre id="resultOut">—</pre>
+  </main>
+
+  <script src="auth.js"></script>
+  <script>
+    async function refresh() {
+      const [dev, rep] = await Promise.all([api('/api/v1/devices'), api('/api/v1/report')]);
+      document.getElementById('total').textContent = rep.total ?? 0;
+      document.getElementById('online').textContent = rep.online ?? 0;
+      document.getElementById('offline').textContent = rep.offline ?? 0;
+
+      const sel = document.getElementById('deviceSel');
+      const cur = sel.value;
+      sel.innerHTML = '<option value="">选择设备…</option>' +
+        (dev.devices || []).map(d => `<option value="${d.id}">${d.hostname} (${d.os}/${d.arch})</option>`).join('');
+      if (cur) sel.value = cur;
+
+      const rows = (dev.devices || []).map(d => `
+        <tr>
+          <td><span class="dot ${d.online?'on':'off'}"></span>${d.hostname}</td>
+          <td>${d.os}</td><td>${d.arch}</td><td>${d.cpu||'-'}</td>
+          <td>${d.memory_gb}GB</td><td>${d.disk_gb}GB</td>
+          <td>${d.ip||'-'}</td><td>${d.mac||'-'}</td>
+          <td>${d.agent_version||'-'}</td>
+          <td>${d.online ? '在线' : '离线'}</td>
+        </tr>`).join('');
+      document.getElementById('tableWrap').innerHTML = rows
+        ? `<table><thead><tr><th>主机</th><th>OS</th><th>Arch</th><th>CPU</th><th>内存</th><th>磁盘</th><th>IP</th><th>MAC</th><th>Agent</th><th>状态</th></tr></thead><tbody>${rows}</tbody></table>`
+        : '<div class="empty">暂无设备，请先启动副端 Agent。</div>';
+    }
+
+    document.getElementById('sendBtn').onclick = async () => {
+      const id = document.getElementById('deviceSel').value;
+      const action = document.getElementById('actionSel').value;
+      const command = document.getElementById('cmdInput').value;
+      const out = document.getElementById('resultOut');
+      if (!id) { out.textContent = '请先选择设备'; return; }
+      out.textContent = '下发中…';
+      const r = await api(`/api/v1/devices/${id}/commands`, {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ action, command })
+      }).catch(e => ({error: e.message}));
+      out.textContent = JSON.stringify(r, null, 2);
+    };
+
+    refresh();
+    setInterval(refresh, 3000);
+  </script>
+</body>
+</html>

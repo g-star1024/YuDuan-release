@@ -1,0 +1,202 @@
+# 御端发布打包（代码仓 → 发布仓分离）
+#
+# 触发：推送 v* 标签（或手动 workflow_dispatch）。
+# 流程：本私有仓构建客户端（macOS/Windows）+ 中枢（Linux amd64/arm64）
+#       → 打标签发布 Release 到公开仓 g-star1024/YuDuan-release。
+#
+# 前置 Secret：YUDUAN_RELEASE_TOKEN —— 具备 g-star1024/YuDuan-release
+#   contents:write 权限的 PAT（classic repo 作用域或 fine-grained 单仓授权）。
+#
+# 产物：
+#   - macOS：主端 Tauri .dmg（未签名，首开右键打开）
+#   - Windows：主端 yuduan-main.exe + 副端 yuduan-agent.exe（MSVC 原生构建，
+#     遵守发布纪律：不使用 macOS 交叉编译产物）
+#   - Linux：中枢 yuduan-hub 静态二进制部署包（systemd 单元 + 安装脚本）
+
+name: release-client
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-hub:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: dev/go.mod  # 纯标准库零依赖，无需 go.sum/缓存
+
+      - name: Test 中枢
+        working-directory: dev
+        run: go test ./... -count=1
+
+      - name: Build 中枢（linux/windows/macos 全平台）
+        working-directory: dev
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          mkdir -p dist-out
+
+          # —— Linux（systemd）——
+          for arch in amd64 arm64; do
+            CGO_ENABLED=0 GOOS=linux GOARCH=$arch go build -trimpath \
+              -ldflags "-s -w" -o "/tmp/hub_linux_$arch" ./cmd/hub
+            dir="hub-pkg/yuduan-hub_${TAG}_linux_${arch}"
+            mkdir -p "$dir"
+            cp "/tmp/hub_linux_$arch" "$dir/yuduan-hub"
+            cp deploy/hub/env.example deploy/hub/README-deploy.md \
+               deploy/hub/install.sh deploy/hub/yuduan-hub.service "$dir/"
+            chmod +x "$dir/install.sh" "$dir/yuduan-hub"
+            tar -czf "dist-out/YuDuan-hub_${TAG}_linux_${arch}.tar.gz" -C hub-pkg "yuduan-hub_${TAG}_linux_${arch}"
+          done
+
+          # —— Windows（控制台/计划任务）——
+          CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath \
+            -ldflags "-s -w" -o "/tmp/hub_windows/yuduan-hub.exe" ./cmd/hub
+          wdir="hub-pkg/yuduan-hub_${TAG}_windows_amd64"
+          mkdir -p "$wdir"
+          cp /tmp/hub_windows/yuduan-hub.exe "$wdir/"
+          cp deploy/hub/env.example deploy/hub/README-deploy.md \
+             deploy/hub/run-hub.cmd deploy/hub/register-task.ps1 "$wdir/"
+          (cd hub-pkg && zip -rq "../dist-out/YuDuan-hub_${TAG}_windows_amd64.zip" "yuduan-hub_${TAG}_windows_amd64")
+
+          # —— macOS（launchd）——
+          for arch in arm64 amd64; do
+            CGO_ENABLED=0 GOOS=darwin GOARCH=$arch go build -trimpath \
+              -ldflags "-s -w" -o "/tmp/hub_darwin_$arch" ./cmd/hub
+            dir="hub-pkg/yuduan-hub_${TAG}_macos_${arch}"
+            mkdir -p "$dir"
+            cp "/tmp/hub_darwin_$arch" "$dir/yuduan-hub"
+            cp deploy/hub/env.example deploy/hub/README-deploy.md deploy/hub/install-macos.sh "$dir/"
+            chmod +x "$dir/install-macos.sh" "$dir/yuduan-hub"
+            tar -czf "dist-out/YuDuan-hub_${TAG}_macos_${arch}.tar.gz" -C hub-pkg "yuduan-hub_${TAG}_macos_${arch}"
+          done
+          ls -la dist-out/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hub-linux
+          path: dev/dist-out/*
+          if-no-files-found: error
+  build-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: main/package-lock.json
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Build 主端（macOS dmg）
+        working-directory: main
+        run: |
+          npm ci
+          npx tauri build
+
+      - name: Collect artifacts
+        run: |
+          mkdir -p dist-out
+          cp main/src-tauri/target/release/bundle/dmg/*.dmg dist-out/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-client
+          path: dist-out/*
+          if-no-files-found: error
+
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: main/package-lock.json
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Build 副端 agent（MSVC 原生）
+        working-directory: rust/agent
+        shell: pwsh
+        run: rustc -O src/main.rs -o yuduan-agent.exe
+
+      - name: Build 主端（Windows exe，免安装器取裸 exe）
+        working-directory: main
+        shell: pwsh
+        run: |
+          npm ci
+          npx tauri build --no-bundle
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-client
+          path: |
+            rust/agent/yuduan-agent.exe
+            main/src-tauri/target/release/yuduan-main.exe
+          if-no-files-found: error
+
+  publish:
+    needs: [build-macos, build-windows, build-hub]
+    runs-on: ubuntu-latest
+    steps:
+      - name: 校验发布令牌
+        env:
+          TOKEN: ${{ secrets.YUDUAN_RELEASE_TOKEN }}
+        run: |
+          if [ -z "$TOKEN" ]; then
+            echo "::error::缺少仓库 Secret YUDUAN_RELEASE_TOKEN（需要 g-star1024/YuDuan-release 的 contents:write 权限 PAT）。请在私有仓 Settings → Secrets and variables → Actions 配置后重跑。"
+            exit 1
+          fi
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist-out
+
+      - name: 按标签重命名产物
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          mkdir -p release-files
+          f=$(find dist-out -name "*.dmg" | head -1) && cp "$f" "release-files/YuDuan-main_${TAG}_macos.dmg"
+          cp dist-out/windows-client/yuduan-main.exe "release-files/YuDuan-main_${TAG}_windows.exe" 2>/dev/null \
+            || cp dist-out/windows-client/*windows*/yuduan-main.exe "release-files/YuDuan-main_${TAG}_windows.exe"
+          cp dist-out/windows-client/yuduan-agent.exe "release-files/YuDuan-agent_${TAG}_windows.exe" 2>/dev/null \
+            || cp dist-out/windows-client/*windows*/yuduan-agent.exe "release-files/YuDuan-agent_${TAG}_windows.exe"
+          cp dist-out/hub-linux/*.tar.gz release-files/ 2>/dev/null || true
+          cp dist-out/hub-linux/*.zip release-files/ 2>/dev/null || true
+          ls -la release-files/
+
+      - name: 发布 Release 到 YuDuan-release
+        env:
+          GH_TOKEN: ${{ secrets.YUDUAN_RELEASE_TOKEN }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" release-files/* \
+            --repo g-star1024/YuDuan-release \
+            --title "御端 ${GITHUB_REF_NAME}" \
+            --notes "御端发布 ${GITHUB_REF_NAME}
+
+          ## 客户端
+          - macOS 主端：YuDuan-main_${GITHUB_REF_NAME}_macos.dmg（未签名，首次打开请右键 → 打开）
+          - Windows 主端：YuDuan-main_${GITHUB_REF_NAME}_windows.exe（免安装，直接运行）
+          - Windows 副端：YuDuan-agent_${GITHUB_REF_NAME}_windows.exe（MSVC 原生构建；启动后 UDP 自动发现中枢并注册，无需配置）
+
+          ## 中枢（Linux / Windows / macOS）
+          - YuDuan-hub_${GITHUB_REF_NAME}_linux_amd64|arm64.tar.gz：systemd 部署，tar 解包 → sudo ./install.sh
+          - YuDuan-hub_${GITHUB_REF_NAME}_windows_amd64.zip：run-hub.cmd 前台运行 或 register-task.ps1 开机自启
+          - YuDuan-hub_${GITHUB_REF_NAME}_macos_arm64|amd64.tar.gz：launchd 部署，sudo ./install-macos.sh
+          - 均内含配置模板与 README-deploy.md（防火墙端口 / 生产检查清单 / 升级步骤）
+
+          对应源码版本见私有仓 g-star1024/YuDuan 标签 ${GITHUB_REF_NAME}。" \
+          || gh release upload "${GITHUB_REF_NAME}" release-files/* \
+            --repo g-star1024/YuDuan-release --clobber
