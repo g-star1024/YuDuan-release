@@ -162,8 +162,10 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit 1 }
           npx tauri build --no-bundle 2>&1 | tee -a build-main.log
           if ($LASTEXITCODE -ne 0) {
-            Write-Output "==================== 构建失败，日志尾部 80 行 ===================="
-            Get-Content build-main.log -Tail 80 | ForEach-Object { Write-Output "::error::$_" }
+            Write-Output "==================== error 行（最多 8 条）===================="
+            Select-String -Path build-main.log -Pattern "error(\[|:)" | Select-Object -Last 8 | ForEach-Object { Write-Output "::error::$($_.Line.Trim())" }
+            Write-Output "==================== 日志尾部 3 行 ===================="
+            Get-Content build-main.log -Tail 3 | ForEach-Object { Write-Output "::error::$($_.Trim())" }
             exit 1
           }
 
@@ -178,7 +180,11 @@ jobs:
           git rm -rf --cached . 2>$null
           git add build-main.log
           git commit -m "windows main build log"
-          git push -f origin ci-logs-win
+          if ($LASTEXITCODE -ne 0) { Write-Output "::error::commit failed"; exit 1 }
+          git push -f "https://x-access-token:${env:YUDUAN_RELEASE_TOKEN}@github.com/g-star1024/YuDuan-release.git" ci-logs-win
+          if ($LASTEXITCODE -ne 0) { Write-Output "::error::push ci-logs-win failed"; exit 1 }
+        env:
+          YUDUAN_RELEASE_TOKEN: ${{ secrets.YUDUAN_RELEASE_TOKEN }}
 
       - uses: actions/upload-artifact@v4
         with:
