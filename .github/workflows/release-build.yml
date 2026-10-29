@@ -218,42 +218,18 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
         with:
-          targets: x86_64-unknown-linux-gnu,aarch64-unknown-linux-gnu
+          targets: x86_64-unknown-linux-gnu
 
-      - name: Install Linux build deps（aarch64 交叉链接器 + X11/Xtst 原生与 arm64 交叉库）
+      - name: Install Linux build deps（X11/Xtst 原生库）
         run: |
-          set -euxo pipefail
-          # GitHub runner 默认 apt 镜像不提供 arm64 二进制索引（binary-arm64/Packages 404），
-          # 因此：默认源限制为 amd64，arm64 库改走 ports.ubuntu.com（官方全架构镜像）。
-          sudo python3 - <<'PY'
-          import pathlib
-          p = pathlib.Path('/etc/apt/sources.list.d/ubuntu.sources')
-          if not p.exists():
-              raise SystemExit('ubuntu.sources not found')
-          lines = p.read_text().splitlines()
-          out = []
-          for i, l in enumerate(lines):
-              out.append(l)
-              if l.startswith('Types:'):
-                  block = lines[i+1:i+8]
-                  if not any(x.strip().startswith('Architectures:') for x in block):
-                      out.append('Architectures: amd64')
-          p.write_text('\n'.join(out) + '\n')
-          PY
-          echo "deb [arch=arm64 signed-by=/usr/share/keyrings/ubuntu-archive-keyring.gpg] http://ports.ubuntu.com/ubuntu-ports noble noble-updates noble-backports main universe" | sudo tee /etc/apt/sources.list.d/arm64.list >/dev/null
-          sudo dpkg --add-architecture arm64
           sudo apt-get update
-          sudo apt-get install -y \
-            gcc-aarch64-linux-gnu \
-            libx11-dev libxtst-dev \
-            libx11-dev:arm64 libxtst-dev:arm64
+          sudo apt-get install -y libx11-dev libxtst-dev
 
-      - name: Build 副端 agent（Linux 双架构，std-only 单文件）
+      - name: Build 副端 agent（Linux amd64，std-only 单文件）
         working-directory: rust/agent
         run: |
           mkdir -p dist-out
           rustc -O src/main.rs -o dist-out/yuduan-agent-linux-amd64
-          rustc -O --target aarch64-unknown-linux-gnu -C linker=aarch64-linux-gnu-gcc src/main.rs -o dist-out/yuduan-agent-linux-arm64
           ls -la dist-out/
 
       - name: 打包 Linux 副端部署包（systemd + install.sh）
@@ -261,16 +237,14 @@ jobs:
         run: |
           TAG="${GITHUB_REF_NAME}"
           mkdir -p dist-out/pkg
-          for arch in amd64 arm64; do
-            dir="dist-out/pkg/yuduan-agent_${TAG}_linux_${arch}"
-            mkdir -p "$dir/systemd"
-            cp "dist-out/yuduan-agent-linux-${arch}" "$dir/yuduan-agent"
-            cp deploy/install-linux.sh "$dir/install.sh"
-            cp deploy/systemd/yuduan-agent.service "$dir/systemd/yuduan-agent.service"
-            cp README.md "$dir/README.md"
-            chmod +x "$dir/install.sh" "$dir/yuduan-agent"
-            tar -czf "dist-out/YuDuan-agent_${TAG}_linux_${arch}.tar.gz" -C "dist-out/pkg" "yuduan-agent_${TAG}_linux_${arch}"
-          done
+          dir="dist-out/pkg/yuduan-agent_${TAG}_linux_amd64"
+          mkdir -p "$dir/systemd"
+          cp "dist-out/yuduan-agent-linux-amd64" "$dir/yuduan-agent"
+          cp deploy/install-linux.sh "$dir/install.sh"
+          cp deploy/systemd/yuduan-agent.service "$dir/systemd/yuduan-agent.service"
+          cp README.md "$dir/README.md"
+          chmod +x "$dir/install.sh" "$dir/yuduan-agent"
+          tar -czf "dist-out/YuDuan-agent_${TAG}_linux_amd64.tar.gz" -C "dist-out/pkg" "yuduan-agent_${TAG}_linux_amd64"
           ls -la dist-out/*.tar.gz
 
       - uses: actions/upload-artifact@v4
@@ -322,7 +296,7 @@ jobs:
           - macOS 主端：YuDuan-main_${TAG}_macos_arm64.dmg（Apple Silicon）/ _macos_x64.dmg（Intel）——未签名，首次打开请右键 → 打开
           - Windows 主端：YuDuan-main_${TAG}_windows.exe（免安装，直接运行）
           - Windows 副端：一键包 YuDuan-agent_${TAG}_windows_onekey.zip（解压后双击 deploy-agent.bat，自动清旧配置+装服务）；裸 exe YuDuan-agent_${TAG}_windows.exe；macOS 副端：YuDuan-agent_${TAG}_macos_arm64 / _macos_x64（MSVC/Rust 原生构建；启动后 UDP 自动发现中枢并注册，无需配置）
-          - Linux 副端：YuDuan-agent_${TAG}_linux_amd64|arm64.tar.gz（systemd 部署，tar 解包 → sudo ./install.sh；std-only 单文件）
+          - Linux 副端：YuDuan-agent_${TAG}_linux_amd64.tar.gz（systemd 部署，tar 解包 → sudo ./install.sh；std-only 单文件）。arm64 交叉构建受 GitHub runner 多架构镜像版本偏移影响，暂缓，后续版本补齐
 
           ## 中枢（Linux / Windows / macOS）
           - YuDuan-hub_${TAG}_linux_amd64|arm64.tar.gz：systemd 部署，tar 解包 → sudo ./install.sh
