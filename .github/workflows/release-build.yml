@@ -76,7 +76,7 @@ jobs:
           mkdir -p "$wdir"
           cp /tmp/hub_windows/yuduan-hub.exe "$wdir/"
           cp deploy/hub/env.example deploy/hub/README-deploy.md \
-             deploy/hub/run-hub.cmd deploy/hub/register-task.ps1 "$wdir/"
+             deploy/hub/deploy.bat deploy/hub/run-hub.cmd deploy/hub/register-task.ps1 "$wdir/"
           (cd hub-pkg && zip -rq "../dist-out/YuDuan-hub_${TAG}_windows_amd64.zip" "yuduan-hub_${TAG}_windows_amd64")
 
           # —— macOS（launchd）——
@@ -162,10 +162,18 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
 
-      - name: Build 副端 agent（MSVC 原生）
+      - name: Build 副端 agent（MSVC 原生）+ 打包一键部署 zip
         working-directory: rust/agent
         shell: pwsh
-        run: rustc -O src/main.rs -o yuduan-agent.exe
+        run: |
+          rustc -O src/main.rs -o yuduan-agent.exe
+          $tag = $env:GITHUB_REF_NAME
+          $pkg = "agent-pkg/yuduan-agent_$tag"
+          New-Item -ItemType Directory -Force -Path $pkg | Out-Null
+          Copy-Item yuduan-agent.exe $pkg/
+          Copy-Item deploy/windows/install-agent.ps1, deploy/windows/run-agent.cmd, deploy/windows/deploy-agent.bat $pkg/
+          Compress-Archive -Path $pkg -DestinationPath "YuDuan-agent_windows_deploy.zip" -Force
+          Get-ChildItem agent-pkg -Recurse | Select-Object FullName
 
       - name: Build 主端（Windows exe，免安装器取裸 exe）
         working-directory: main
@@ -204,6 +212,7 @@ jobs:
           name: windows-client
           path: |
             rust/agent/yuduan-agent.exe
+            rust/agent/YuDuan-agent_windows_deploy.zip
             main/src-tauri/target/release/yuduan-main.exe
           if-no-files-found: error
 
@@ -224,11 +233,13 @@ jobs:
           dmg_x64=$(find dist-out -name "*x64*.dmg" | head -1)
           mainexe=$(find dist-out/windows-client -name "yuduan-main.exe" | head -1)
           agentexe=$(find dist-out/windows-client -name "yuduan-agent.exe" | head -1)
+          agentzip=$(find dist-out/windows-client -name "YuDuan-agent_windows_deploy.zip" | head -1)
           echo "dmg_arm=$dmg_arm"; echo "dmg_x64=$dmg_x64"; echo "main=$mainexe"; echo "agent=$agentexe"
           cp "$dmg_arm" "release-files/YuDuan-main_${TAG}_macos_arm64.dmg"
           cp "$dmg_x64" "release-files/YuDuan-main_${TAG}_macos_x64.dmg"
           cp "$mainexe" "release-files/YuDuan-main_${TAG}_windows.exe"
           cp "$agentexe" "release-files/YuDuan-agent_${TAG}_windows.exe"
+          cp "$agentzip" "release-files/YuDuan-agent_${TAG}_windows_onekey.zip"
           cp dist-out/macos-client/yuduan-agent-arm64 "release-files/YuDuan-agent_${TAG}_macos_arm64"
           cp dist-out/macos-client/yuduan-agent-x64 "release-files/YuDuan-agent_${TAG}_macos_x64"
           cp dist-out/hub-all/*.tar.gz dist-out/hub-all/*.zip release-files/
@@ -248,7 +259,7 @@ jobs:
           ## 客户端
           - macOS 主端：YuDuan-main_${TAG}_macos_arm64.dmg（Apple Silicon）/ _macos_x64.dmg（Intel）——未签名，首次打开请右键 → 打开
           - Windows 主端：YuDuan-main_${TAG}_windows.exe（免安装，直接运行）
-          - Windows 副端：YuDuan-agent_${TAG}_windows.exe；macOS 副端：YuDuan-agent_${TAG}_macos_arm64 / _macos_x64（MSVC/Rust 原生构建；启动后 UDP 自动发现中枢并注册，无需配置）
+          - Windows 副端：一键包 YuDuan-agent_${TAG}_windows_onekey.zip（解压后双击 deploy-agent.bat，自动清旧配置+装服务）；裸 exe YuDuan-agent_${TAG}_windows.exe；macOS 副端：YuDuan-agent_${TAG}_macos_arm64 / _macos_x64（MSVC/Rust 原生构建；启动后 UDP 自动发现中枢并注册，无需配置）
 
           ## 中枢（Linux / Windows / macOS）
           - YuDuan-hub_${TAG}_linux_amd64|arm64.tar.gz：systemd 部署，tar 解包 → sudo ./install.sh
