@@ -162,18 +162,10 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
 
-      - name: Build 副端 agent（MSVC 原生）+ 打包一键部署 zip
+      - name: Build 副端 agent（MSVC 原生；exe 自安装：双击即清旧配置+装服务+启动）
         working-directory: rust/agent
         shell: pwsh
-        run: |
-          rustc -O src/main.rs -o yuduan-agent.exe
-          $tag = $env:GITHUB_REF_NAME
-          $pkg = "agent-pkg/yuduan-agent_$tag"
-          New-Item -ItemType Directory -Force -Path $pkg | Out-Null
-          Copy-Item yuduan-agent.exe $pkg/
-          Copy-Item deploy/windows/install-agent.ps1, deploy/windows/run-agent.cmd, deploy/windows/deploy-agent.bat $pkg/
-          Compress-Archive -Path $pkg -DestinationPath "YuDuan-agent_windows_deploy.zip" -Force
-          Get-ChildItem agent-pkg -Recurse | Select-Object FullName
+        run: rustc -O src/main.rs -o yuduan-agent.exe
 
       - name: Build 主端（Windows exe，免安装器取裸 exe）
         working-directory: main
@@ -212,7 +204,6 @@ jobs:
           name: windows-client
           path: |
             rust/agent/yuduan-agent.exe
-            rust/agent/YuDuan-agent_windows_deploy.zip
             main/src-tauri/target/release/yuduan-main.exe
           if-no-files-found: error
 
@@ -233,13 +224,11 @@ jobs:
           dmg_x64=$(find dist-out -name "*x64*.dmg" | head -1)
           mainexe=$(find dist-out/windows-client -name "yuduan-main.exe" | head -1)
           agentexe=$(find dist-out/windows-client -name "yuduan-agent.exe" | head -1)
-          agentzip=$(find dist-out/windows-client -name "YuDuan-agent_windows_deploy.zip" | head -1)
           echo "dmg_arm=$dmg_arm"; echo "dmg_x64=$dmg_x64"; echo "main=$mainexe"; echo "agent=$agentexe"
           cp "$dmg_arm" "release-files/YuDuan-main_${TAG}_macos_arm64.dmg"
           cp "$dmg_x64" "release-files/YuDuan-main_${TAG}_macos_x64.dmg"
           cp "$mainexe" "release-files/YuDuan-main_${TAG}_windows.exe"
           cp "$agentexe" "release-files/YuDuan-agent_${TAG}_windows.exe"
-          cp "$agentzip" "release-files/YuDuan-agent_${TAG}_windows_onekey.zip"
           cp dist-out/macos-client/yuduan-agent-arm64 "release-files/YuDuan-agent_${TAG}_macos_arm64"
           cp dist-out/macos-client/yuduan-agent-x64 "release-files/YuDuan-agent_${TAG}_macos_x64"
           cp dist-out/hub-all/*.tar.gz dist-out/hub-all/*.zip release-files/
