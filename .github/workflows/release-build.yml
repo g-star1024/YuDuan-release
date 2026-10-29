@@ -207,8 +207,55 @@ jobs:
             main/src-tauri/target/release/yuduan-main.exe
           if-no-files-found: error
 
+  build-linux-agent:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: g-star1024/YuDuan
+          ref: ${{ inputs.source_ref || github.ref_name }}
+          token: ${{ secrets.YUDUAN_RELEASE_TOKEN }}
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-gnu,aarch64-unknown-linux-gnu
+
+      - name: Install aarch64 linker
+        run: sudo apt-get update && sudo apt-get install -y gcc-aarch64-linux-gnu
+
+      - name: Build 副端 agent（Linux 双架构，std-only 单文件）
+        working-directory: rust/agent
+        run: |
+          mkdir -p dist-out
+          rustc -O src/main.rs -o dist-out/yuduan-agent-linux-amd64
+          rustc -O --target aarch64-unknown-linux-gnu -C linker=aarch64-linux-gnu-gcc src/main.rs -o dist-out/yuduan-agent-linux-arm64
+          ls -la dist-out/
+
+      - name: 打包 Linux 副端部署包（systemd + install.sh）
+        working-directory: rust/agent
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          mkdir -p dist-out/pkg
+          for arch in amd64 arm64; do
+            dir="dist-out/pkg/yuduan-agent_${TAG}_linux_${arch}"
+            mkdir -p "$dir/systemd"
+            cp "dist-out/yuduan-agent-linux-${arch}" "$dir/yuduan-agent"
+            cp deploy/install-linux.sh "$dir/install.sh"
+            cp deploy/systemd/yuduan-agent.service "$dir/systemd/yuduan-agent.service"
+            cp README.md "$dir/README.md"
+            chmod +x "$dir/install.sh" "$dir/yuduan-agent"
+            tar -czf "dist-out/YuDuan-agent_${TAG}_linux_${arch}.tar.gz" -C "dist-out/pkg" "yuduan-agent_${TAG}_linux_${arch}"
+          done
+          ls -la dist-out/*.tar.gz
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-agent
+          path: rust/agent/dist-out/*.tar.gz
+          if-no-files-found: error
+
   publish:
-    needs: [build-macos, build-windows, build-hub]
+    needs: [build-macos, build-windows, build-hub, build-linux-agent]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
@@ -231,6 +278,7 @@ jobs:
           cp "$agentexe" "release-files/YuDuan-agent_${TAG}_windows.exe"
           cp dist-out/macos-client/yuduan-agent-arm64 "release-files/YuDuan-agent_${TAG}_macos_arm64"
           cp dist-out/macos-client/yuduan-agent-x64 "release-files/YuDuan-agent_${TAG}_macos_x64"
+          cp dist-out/linux-agent/*.tar.gz "release-files/"
           cp dist-out/hub-all/*.tar.gz dist-out/hub-all/*.zip release-files/
           ls -la release-files/
 
@@ -249,6 +297,7 @@ jobs:
           - macOS 主端：YuDuan-main_${TAG}_macos_arm64.dmg（Apple Silicon）/ _macos_x64.dmg（Intel）——未签名，首次打开请右键 → 打开
           - Windows 主端：YuDuan-main_${TAG}_windows.exe（免安装，直接运行）
           - Windows 副端：一键包 YuDuan-agent_${TAG}_windows_onekey.zip（解压后双击 deploy-agent.bat，自动清旧配置+装服务）；裸 exe YuDuan-agent_${TAG}_windows.exe；macOS 副端：YuDuan-agent_${TAG}_macos_arm64 / _macos_x64（MSVC/Rust 原生构建；启动后 UDP 自动发现中枢并注册，无需配置）
+          - Linux 副端：YuDuan-agent_${TAG}_linux_amd64|arm64.tar.gz（systemd 部署，tar 解包 → sudo ./install.sh；std-only 单文件）
 
           ## 中枢（Linux / Windows / macOS）
           - YuDuan-hub_${TAG}_linux_amd64|arm64.tar.gz：systemd 部署，tar 解包 → sudo ./install.sh
