@@ -222,6 +222,25 @@ jobs:
 
       - name: Install Linux build deps（aarch64 交叉链接器 + X11/Xtst 原生与 arm64 交叉库）
         run: |
+          set -euxo pipefail
+          # GitHub runner 默认 apt 镜像不提供 arm64 二进制索引（binary-arm64/Packages 404），
+          # 因此：默认源限制为 amd64，arm64 库改走 ports.ubuntu.com（官方全架构镜像）。
+          sudo python3 - <<'PY'
+          import pathlib
+          p = pathlib.Path('/etc/apt/sources.list.d/ubuntu.sources')
+          if not p.exists():
+              raise SystemExit('ubuntu.sources not found')
+          lines = p.read_text().splitlines()
+          out = []
+          for i, l in enumerate(lines):
+              out.append(l)
+              if l.startswith('Types:'):
+                  block = lines[i+1:i+8]
+                  if not any(x.strip().startswith('Architectures:') for x in block):
+                      out.append('Architectures: amd64')
+          p.write_text('\n'.join(out) + '\n')
+          PY
+          echo "deb [arch=arm64 signed-by=/usr/share/keyrings/ubuntu-archive-keyring.gpg] http://ports.ubuntu.com/ubuntu-ports noble noble-updates noble-backports main universe" | sudo tee /etc/apt/sources.list.d/arm64.list >/dev/null
           sudo dpkg --add-architecture arm64
           sudo apt-get update
           sudo apt-get install -y \
