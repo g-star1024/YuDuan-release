@@ -220,8 +220,14 @@ jobs:
         with:
           targets: x86_64-unknown-linux-gnu,aarch64-unknown-linux-gnu
 
-      - name: Install aarch64 linker
-        run: sudo apt-get update && sudo apt-get install -y gcc-aarch64-linux-gnu
+      - name: Install Linux build deps（aarch64 交叉链接器 + X11/Xtst 原生与 arm64 交叉库）
+        run: |
+          sudo dpkg --add-architecture arm64
+          sudo apt-get update
+          sudo apt-get install -y \
+            gcc-aarch64-linux-gnu \
+            libx11-dev libxtst-dev \
+            libx11-dev:arm64 libxtst-dev:arm64
 
       - name: Build 副端 agent（Linux 双架构，std-only 单文件）
         working-directory: rust/agent
