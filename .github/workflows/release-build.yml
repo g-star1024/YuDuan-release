@@ -60,21 +60,27 @@ jobs:
           for arch in amd64 arm64; do
             CGO_ENABLED=0 GOOS=linux GOARCH=$arch go build -trimpath \
               -ldflags "-s -w" -o "/tmp/hub_linux_$arch" ./cmd/hub
+            CGO_ENABLED=0 GOOS=linux GOARCH=$arch go build -trimpath \
+              -ldflags "-s -w" -o "/tmp/ca_linux_$arch" ./cmd/ca
             dir="hub-pkg/yuduan-hub_${TAG}_linux_${arch}"
             mkdir -p "$dir"
             cp "/tmp/hub_linux_$arch" "$dir/yuduan-hub"
+            cp "/tmp/ca_linux_$arch" "$dir/yuduan-ca"
             cp deploy/hub/env.example deploy/hub/README-deploy.md \
                deploy/hub/install.sh deploy/hub/yuduan-hub.service "$dir/"
-            chmod +x "$dir/install.sh" "$dir/yuduan-hub"
+            chmod +x "$dir/install.sh" "$dir/yuduan-hub" "$dir/yuduan-ca"
             tar -czf "dist-out/YuDuan-hub_${TAG}_linux_${arch}.tar.gz" -C hub-pkg "yuduan-hub_${TAG}_linux_${arch}"
           done
 
           # —— Windows（控制台/计划任务）——
           CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath \
             -ldflags "-s -w" -o "/tmp/hub_windows/yuduan-hub.exe" ./cmd/hub
+          CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath \
+            -ldflags "-s -w" -o "/tmp/hub_windows/yuduan-ca.exe" ./cmd/ca
           wdir="hub-pkg/yuduan-hub_${TAG}_windows_amd64"
           mkdir -p "$wdir"
           cp /tmp/hub_windows/yuduan-hub.exe "$wdir/"
+          cp /tmp/hub_windows/yuduan-ca.exe "$wdir/"
           cp deploy/hub/env.example deploy/hub/README-deploy.md \
              deploy/hub/deploy.bat deploy/hub/run-hub.cmd deploy/hub/register-task.ps1 "$wdir/"
           (cd hub-pkg && zip -rq "../dist-out/YuDuan-hub_${TAG}_windows_amd64.zip" "yuduan-hub_${TAG}_windows_amd64")
@@ -83,11 +89,14 @@ jobs:
           for arch in arm64 amd64; do
             CGO_ENABLED=0 GOOS=darwin GOARCH=$arch go build -trimpath \
               -ldflags "-s -w" -o "/tmp/hub_darwin_$arch" ./cmd/hub
+            CGO_ENABLED=0 GOOS=darwin GOARCH=$arch go build -trimpath \
+              -ldflags "-s -w" -o "/tmp/ca_darwin_$arch" ./cmd/ca
             dir="hub-pkg/yuduan-hub_${TAG}_macos_${arch}"
             mkdir -p "$dir"
             cp "/tmp/hub_darwin_$arch" "$dir/yuduan-hub"
+            cp "/tmp/ca_darwin_$arch" "$dir/yuduan-ca"
             cp deploy/hub/env.example deploy/hub/README-deploy.md deploy/hub/install-macos.sh "$dir/"
-            chmod +x "$dir/install-macos.sh" "$dir/yuduan-hub"
+            chmod +x "$dir/install-macos.sh" "$dir/yuduan-hub" "$dir/yuduan-ca"
             tar -czf "dist-out/YuDuan-hub_${TAG}_macos_${arch}.tar.gz" -C hub-pkg "yuduan-hub_${TAG}_macos_${arch}"
           done
           ls -la dist-out/
