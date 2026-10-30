@@ -2,6 +2,8 @@
 
 御端（YuDuan）官方发布仓库。源代码在私有仓 [g-star1024/YuDuan](https://github.com/g-star1024/YuDuan)。
 
+> 当前版本：**v0.4.3** —— Windows 中枢控制台已内嵌进 `yuduan-hub.exe`，修复生产环境访问 `:8080` 返回 404 的问题；部署脚本含重部署孤儿进程清理。
+
 ## 下载
 
 见右侧 [Releases](https://github.com/g-star1024/YuDuan-release/releases)：
