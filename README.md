@@ -2,7 +2,7 @@
 
 御端（YuDuan）官方发布仓库。源代码在私有仓 [g-star1024/YuDuan](https://github.com/g-star1024/YuDuan)。
 
-> 当前版本：**v0.4.8** —— v0.4.7 实测报告四项修复：① 部署自检改为轮询 hub.log 「内置 admin 账号就绪」行（≤60s）再测登录，根治 ~40s 启动竞态误报；② 计划任务电池策略属性名修正（DisallowStartIfOnBatteries=false）+ 回读断言；③ 副端一键安装器非交互场景（--quiet / stdin 非控制台）自动跳过回车等待，自动化部署不再挂起；④ 设备注册幂等化——token 轮换后按硬件身份（serial → hostname+mac）复用既有设备 ID，台账不再重复建档，分组/生命周期属性保留；副端支持 YUDUAN_HOSTNAME/MAC/SERIAL 身份覆盖（多设备模拟/容器场景）。
+> 当前版本：**v0.4.9** —— 部署/清理体验修复：① 新增官方重装清理脚本 **cleanup.ps1**（随 Windows 中枢包分发，中枢+副端一体清：计划任务/防火墙规则/残留进程/副端服务/YUDUAN_* 环境变量），**先探测再执行**——目标不存在时打灰色 `[SKIP]` 而非红色报错，消除现场「清理报错=部署失败」误判；② register-task.ps1 的 -Remove 卸载与升级停旧同样改为探测式输出。配置与数据（hub.env、data\）一律不动。
 
 ## 下载
 

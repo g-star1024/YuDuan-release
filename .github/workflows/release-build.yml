@@ -82,7 +82,8 @@ jobs:
           cp /tmp/hub_windows/yuduan-hub.exe "$wdir/"
           cp /tmp/hub_windows/yuduan-ca.exe "$wdir/"
           cp deploy/hub/env.example deploy/hub/README-deploy.md \
-             deploy/hub/deploy.bat deploy/hub/run-hub.cmd deploy/hub/register-task.ps1 "$wdir/"
+             deploy/hub/deploy.bat deploy/hub/run-hub.cmd deploy/hub/register-task.ps1 \
+             deploy/hub/cleanup.ps1 "$wdir/"
           (cd hub-pkg && zip -rq "../dist-out/YuDuan-hub_${TAG}_windows_amd64.zip" "yuduan-hub_${TAG}_windows_amd64")
 
           # —— macOS（launchd）——
