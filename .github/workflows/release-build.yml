@@ -134,13 +134,28 @@ jobs:
           npx tauri build
           npx tauri build --target x86_64-apple-darwin
 
+      # v0.4.10（实测报告问题 1）：agent 版本串改为构建期注入（YUDUAN_AGENT_VERSION
+      # = 发布号去 v），杜绝「发版忘 bump 常量」回归（v0.4.8 实锤自报 0.4.7）。
       - name: Build 副端 agent（macOS 双架构）
         working-directory: rust/agent
         run: |
           mkdir -p dist-out
-          rustc -O src/main.rs -o dist-out/yuduan-agent-arm64
-          rustc -O --target x86_64-apple-darwin src/main.rs -o dist-out/yuduan-agent-x64
+          VER="${GITHUB_REF_NAME#v}"
+          YUDUAN_AGENT_VERSION="$VER" rustc -O src/main.rs -o dist-out/yuduan-agent-arm64
+          YUDUAN_AGENT_VERSION="$VER" rustc -O --target x86_64-apple-darwin src/main.rs -o dist-out/yuduan-agent-x64
+          # ad-hoc 自签名（arm64 链接器默认已签，显式统一）
+          codesign --force --sign - dist-out/yuduan-agent-arm64 dist-out/yuduan-agent-x64
           ls -la dist-out/
+
+      # v0.4.10：macOS 主端 ad-hoc 自签名——未签名 app 在较新 macOS（Sequoia+）会报
+      # 「已损坏，无法打开」，ad-hoc 签名可消除该误报；仍非 Developer ID 分发级签名
+      # （首开右键打开依旧），免右键需付费开发者账号 + 公证，见 Release 说明。
+      - name: Ad-hoc codesign 主端（app + dmg）
+        run: |
+          codesign --force --deep --sign - main/src-tauri/target/release/bundle/macos/*.app
+          codesign --force --deep --sign - main/src-tauri/target/x86_64-apple-darwin/release/bundle/macos/*.app
+          codesign --force --sign - main/src-tauri/target/release/bundle/dmg/*.dmg
+          codesign --force --sign - main/src-tauri/target/x86_64-apple-darwin/release/bundle/dmg/*.dmg
 
       - name: Collect artifacts
         run: |
@@ -175,7 +190,9 @@ jobs:
       - name: Build 副端 agent（MSVC 原生；exe 自安装：双击即清旧配置+装服务+启动）
         working-directory: rust/agent
         shell: pwsh
-        run: rustc -O src/main.rs -o yuduan-agent.exe
+        run: |
+          $env:YUDUAN_AGENT_VERSION = ($env:GITHUB_REF_NAME -replace '^v','')
+          rustc -O src/main.rs -o yuduan-agent.exe
 
       - name: Build 主端（Windows exe，免安装器取裸 exe）
         working-directory: main
@@ -239,7 +256,7 @@ jobs:
         working-directory: rust/agent
         run: |
           mkdir -p dist-out
-          rustc -O src/main.rs -o dist-out/yuduan-agent-linux-amd64
+          YUDUAN_AGENT_VERSION="${GITHUB_REF_NAME#v}" rustc -O src/main.rs -o dist-out/yuduan-agent-linux-amd64
           ls -la dist-out/
 
       - name: 打包 Linux 副端部署包（systemd + install.sh）
@@ -290,6 +307,21 @@ jobs:
           cp dist-out/linux-agent/*.tar.gz "release-files/"
           cp dist-out/hub-all/*.tar.gz dist-out/hub-all/*.zip release-files/
           ls -la release-files/
+          # v0.4.10（实测报告问题 1）：发布断言——三平台副端二进制必须内含发布号版本串
+          # （v0.4.8 曾整包自报 0.4.7 上线）。不匹配直接 fail，Release 不发布。
+          if [[ "$TAG" == v* ]]; then
+            VER="${TAG#v}"
+            for f in "release-files/YuDuan-agent_${TAG}_windows.exe" \
+                     "release-files/YuDuan-agent_${TAG}_macos_arm64" \
+                     "release-files/YuDuan-agent_${TAG}_macos_x64" \
+                     release-files/YuDuan-agent_${TAG}_linux_amd64.tar.gz; do
+              if ! grep -aq -- "$VER" "$f"; then
+                echo "::error::版本串断言失败：$f 未包含 $VER（版本注入回归，禁止发布）"
+                exit 1
+              fi
+            done
+            echo "版本串断言通过：全部副端产物含 $VER"
+          fi
 
       - name: 发布 Release 到本仓库
         env:
@@ -303,7 +335,7 @@ jobs:
             --notes "御端发布 $TAG
 
           ## 客户端
-          - macOS 主端：YuDuan-main_${TAG}_macos_arm64.dmg（Apple Silicon）/ _macos_x64.dmg（Intel）——未签名，首次打开请右键 → 打开
+          - macOS 主端：YuDuan-main_${TAG}_macos_arm64.dmg（Apple Silicon）/ _macos_x64.dmg（Intel）——ad-hoc 自签名（可消除「已损坏」误报；非 Developer ID 分发级签名，首次打开仍需右键 → 打开；免右键需开发者账号公证，暂缓）
           - Windows 主端：YuDuan-main_${TAG}_windows.exe（免安装，直接运行）
           - Windows 副端：一键包 YuDuan-agent_${TAG}_windows_onekey.zip（解压后双击 deploy-agent.bat，自动清旧配置+装服务）；裸 exe YuDuan-agent_${TAG}_windows.exe；macOS 副端：YuDuan-agent_${TAG}_macos_arm64 / _macos_x64（MSVC/Rust 原生构建；启动后 UDP 自动发现中枢并注册，无需配置）
           - Linux 副端：YuDuan-agent_${TAG}_linux_amd64.tar.gz（systemd 部署，tar 解包 → sudo ./install.sh；std-only 单文件）。arm64 交叉构建受 GitHub runner 多架构镜像版本偏移影响，暂缓，后续版本补齐
