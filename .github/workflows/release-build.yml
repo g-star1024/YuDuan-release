@@ -145,6 +145,11 @@ jobs:
           YUDUAN_AGENT_VERSION="$VER" rustc -O --target x86_64-apple-darwin src/main.rs -o dist-out/yuduan-agent-x64
           # ad-hoc 自签名（arm64 链接器默认已签，显式统一）
           codesign --force --sign - dist-out/yuduan-agent-arm64 dist-out/yuduan-agent-x64
+          # v0.4.10：构建即自检——运行 --version 必须等于发布号（option_env! 注入的
+          # 短串会被编译器内联为指令立即数，对二进制 grep 不可靠，运行时输出才可信）
+          GOT="$(./dist-out/yuduan-agent-arm64 --version)"
+          echo "arm64 $GOT"
+          [ "$GOT" = "yuduan-agent $VER" ] || { echo "::error::版本自检失败: got '$GOT' want 'yuduan-agent $VER'"; exit 1; }
           ls -la dist-out/
 
       # v0.4.10：macOS 主端 ad-hoc 自签名——未签名 app 在较新 macOS（Sequoia+）会报
@@ -193,6 +198,12 @@ jobs:
         run: |
           $env:YUDUAN_AGENT_VERSION = ($env:GITHUB_REF_NAME -replace '^v','')
           rustc -O src/main.rs -o yuduan-agent.exe
+          $got = (& .\yuduan-agent.exe --version) -join ''
+          Write-Output "agent $got"
+          if ($got -ne "yuduan-agent $env:YUDUAN_AGENT_VERSION") {
+            Write-Output "::error::版本自检失败: got '$got' want 'yuduan-agent $env:YUDUAN_AGENT_VERSION'"
+            exit 1
+          }
 
       - name: Build 主端（Windows exe，免安装器取裸 exe）
         working-directory: main
@@ -257,6 +268,9 @@ jobs:
         run: |
           mkdir -p dist-out
           YUDUAN_AGENT_VERSION="${GITHUB_REF_NAME#v}" rustc -O src/main.rs -o dist-out/yuduan-agent-linux-amd64
+          GOT="$(./dist-out/yuduan-agent-linux-amd64 --version)"
+          echo "linux $GOT"
+          [ "$GOT" = "yuduan-agent ${GITHUB_REF_NAME#v}" ] || { echo "::error::版本自检失败: got '$GOT'"; exit 1; }
           ls -la dist-out/
 
       - name: 打包 Linux 副端部署包（systemd + install.sh）
@@ -307,21 +321,8 @@ jobs:
           cp dist-out/linux-agent/*.tar.gz "release-files/"
           cp dist-out/hub-all/*.tar.gz dist-out/hub-all/*.zip release-files/
           ls -la release-files/
-          # v0.4.10（实测报告问题 1）：发布断言——三平台副端二进制必须内含发布号版本串
-          # （v0.4.8 曾整包自报 0.4.7 上线）。不匹配直接 fail，Release 不发布。
-          if [[ "$TAG" == v* ]]; then
-            VER="${TAG#v}"
-            for f in "release-files/YuDuan-agent_${TAG}_windows.exe" \
-                     "release-files/YuDuan-agent_${TAG}_macos_arm64" \
-                     "release-files/YuDuan-agent_${TAG}_macos_x64" \
-                     release-files/YuDuan-agent_${TAG}_linux_amd64.tar.gz; do
-              if ! grep -aq -- "$VER" "$f"; then
-                echo "::error::版本串断言失败：$f 未包含 $VER（版本注入回归，禁止发布）"
-                exit 1
-              fi
-            done
-            echo "版本串断言通过：全部副端产物含 $VER"
-          fi
+          # 版本串校验在各构建 job 内以「运行 --version」完成（v0.4.10）——二进制 grep
+          # 对 option_env! 注入的短串不可靠（编译器内联为指令立即数）。
 
       - name: 发布 Release 到本仓库
         env:
