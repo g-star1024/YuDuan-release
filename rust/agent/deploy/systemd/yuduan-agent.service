@@ -1,0 +1,33 @@
+[Unit]
+# 御端（YuDuan）副端 —— Linux systemd 服务单元（系统级，开机自启 + 崩溃自恢复）。
+Description=YuDuan Agent (enterprise terminal management sub-agent)
+Documentation=file:/opt/yuduan/rust/agent/README.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+
+# 验签密钥（必须与 Go 中枢 YUDUAN_HMAC_SECRET 一致；或留 CHANGE-ME 由副端广播 claim 自动获取）
+Environment=YUDUAN_HMAC_SECRET=CHANGE-ME-AT-DEPLOY
+# 默认不写死中枢地址：副端启动 UDP 广播自动发现（安装即注册）。
+# 仅跨网段广播被隔离时才取消注释并填实际 IP：
+# Environment=YUDUAN_HUB=ws://<中枢IP>:8080/ws/agent
+
+ExecStart=/usr/local/bin/yuduan-agent
+Restart=always
+RestartSec=5
+# 副端常驻需要屏幕采集/输入注入权限（远控能力按需放开，见 README 安全说明）
+User=root
+StandardOutput=append:/var/log/yuduan-agent.log
+StandardError=append:/var/log/yuduan-agent.log
+SyslogIdentifier=yuduan-agent
+
+# 安全加固（与远控采集/注入所需最低权限的折中；如需更强的沙箱化可另行收紧）
+NoNewPrivileges=no
+ProtectSystem=full
+ProtectHome=read-only
+PrivateTmp=no
+
+[Install]
+WantedBy=multi-user.target

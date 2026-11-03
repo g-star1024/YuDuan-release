@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>御端 · 剩余开发待办看板</title>
+<style>
+  :root{
+    --bg:#F4F5FA; --card:#FFFFFF; --line:#E8EAF1;
+    --text:#1F2430; --muted:#8A90A3; --brand:#4F6BF5;
+    --p0:#E5484D; --p1:#F59E0B; --p2:#3B82F6; --real:#8A90A3; --done:#22A06B;
+    --p0-soft:#FDECEC; --p1-soft:#FEF3E0; --p2-soft:#EAF1FE; --real-soft:#F1F2F6; --done-soft:#E8F7F0;
+    --r:18px;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;padding:28px 32px 60px;line-height:1.55}
+  .head{max-width:1500px;margin:0 auto 20px}
+  .head h1{font-size:24px;font-weight:700;letter-spacing:-.3px}
+  .head p{color:var(--muted);font-size:13.5px;margin-top:6px}
+  .chips{display:flex;gap:10px;flex-wrap:wrap;margin-top:14px}
+  .chip{padding:6px 14px;border-radius:999px;font-size:12.5px;font-weight:600;border:1px solid var(--line);background:#fff}
+  .chip b{font-weight:700}
+  .chip.p0{color:var(--p0);background:var(--p0-soft);border-color:#f7c7c9}
+  .chip.p1{color:#b45309;background:var(--p1-soft);border-color:#f5d9a8}
+  .chip.p2{color:var(--p2);background:var(--p2-soft);border-color:#c6dbfa}
+  .chip.real{color:var(--muted);background:var(--real-soft)}
+  .chip.done{color:var(--done);background:var(--done-soft);border-color:#b9e4cf}
+  .board{max-width:1500px;margin:20px auto 0;display:grid;grid-template-columns:repeat(5,1fr);gap:14px;align-items:start}
+  @media(max-width:1200px){.board{grid-template-columns:repeat(2,1fr)}}
+  @media(max-width:700px){.board{grid-template-columns:1fr}}
+  .col{background:rgba(255,255,255,.55);border:1px solid var(--line);border-radius:var(--r);padding:14px;min-height:200px}
+  .col-head{display:flex;align-items:center;gap:8px;margin-bottom:12px;padding:0 4px}
+  .col-dot{width:10px;height:10px;border-radius:50%}
+  .col-head h2{font-size:14px;font-weight:700;flex:1}
+  .col-count{font-size:12px;font-weight:700;color:#fff;padding:2px 9px;border-radius:999px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px 14px;margin-bottom:10px;box-shadow:0 1px 2px rgba(31,36,48,.04)}
+  .card.dev{border-left:3px solid var(--p0);background:#fffdf5}
+  .ing{color:#0284c7;font-weight:700}
+  .card.done{background:var(--done-soft);border-color:#b9e4cf}
+  .card.done .title{color:#177f55}
+  .card.done .meta span{color:#3f7d63}
+  .card-top{display:flex;align-items:center;gap:8px;margin-bottom:6px}
+  .wv{font-size:10.5px;font-weight:700;padding:2px 8px;border-radius:6px;letter-spacing:.2px}
+  .wv.w1{background:var(--p0-soft);color:var(--p0)}
+  .wv.w2{background:var(--p0-soft);color:var(--p0)}
+  .wv.w3{background:var(--p0-soft);color:var(--p0)}
+  .wv.w4{background:var(--p1-soft);color:#b45309}
+  .wv.w5{background:var(--p1-soft);color:#b45309}
+  .wv.w6{background:var(--p2-soft);color:var(--p2)}
+  .wv.real{background:var(--real-soft);color:var(--muted)}
+  .wv.done{background:var(--done-soft);color:var(--done)}
+  .id{font-size:11px;font-weight:700;color:var(--muted);font-family:ui-monospace,Menlo,monospace}
+  .title{font-size:13.5px;font-weight:600;margin-bottom:4px}
+  .meta{font-size:11.5px;color:var(--muted);display:flex;gap:10px;flex-wrap:wrap;margin-top:6px}
+  .meta span b{color:var(--text);font-weight:600}
+  .est{font-size:11px;font-weight:700;padding:1px 7px;border-radius:6px;background:#f1f2f6;color:var(--text)}
+  .est.s{background:#eef7f2;color:var(--done)}
+  .est.m{background:#fef3e0;color:#b45309}
+  .est.l{background:#fdeaea;color:var(--p0)}
+  .foot{max-width:1500px;margin:22px auto 0;font-size:12px;color:var(--muted);display:flex;gap:18px;flex-wrap:wrap}
+  .foot .legend{display:flex;gap:12px;align-items:center}
+  .foot .dot{width:9px;height:9px;border-radius:50%;display:inline-block;margin-right:4px}
+  .foot b{color:var(--text)}
+</style>
+</head>
+<body>
+
+<div class="head">
+  <h1>御端 · 剩余开发待办看板</h1>
+  <p>依据《终端统一管理平台-产品策划文档》v1.1 · 基线截至 v0.1.4 构建中 · 生成 2026-10-27 · 更新 2026-10-28（波次 1~5 全部完成 + Rust 生产副端能力对齐）· 配套《御端-剩余开发路线图.md》</p>
+  <div class="chips">
+    <div class="chip p0"><b>0</b> P0 缺口剩余（波次 3 已完成）</div>
+    <div class="chip p1"><b>0</b> P1 二期剩余（全部完成）</div>
+    <div class="chip p2"><b>4</b> P2 远期（波次 6）</div>
+    <div class="chip real"><b>6</b> 实机待验（并行）</div>
+    <div class="chip done"><b>已落地</b> 波次 1~5 全部 + M1–M6 + T-1~T-4 + v0.1.3/0.1.4/v0.2.0</div>
+  </div>
+</div>
+
+<div style="max-width:1500px;margin:16px auto 0;background:#fff;border:1px solid #f7c7c9;border-left:4px solid var(--p0);border-radius:14px;padding:14px 18px;font-size:13px;color:var(--text)">
+  <b style="color:var(--done)">✅ 本批次（波次 3/4/5）集成状态 · 2026-10-28 收口完成</b><br>
+4 个并行开发单元因账户级 429 限流中断（中断前写入 85–95% 代码、未接线），主端已<b>完成集成手术 + 补全缺失部分 + 全量 e2e 回归</b>：<br>
+• 🟢 补齐：`cmd/agent/wave3.go`（副端分发）、`internal/hub/wave4.go`（中枢编排）、`internal/store/store_wave4.go`、`e2e_wave3/4/4b/5a2/5b.py`。<br>
+• 🟢 修复 8 处缺陷（含 wave5bOnce 路由缺失、W3-3 卸载载荷兼容、W5-5 补丁软件名匹配、W4-3 断点续传）。<br>
+• 🟢 验证：`go build`/`go vet` 干净、`go test` 全绿；<b>e2e 8 脚本 126/126 PASS</b>（wave1 18 + wave2 27 + wave3 12 + wave4 15 + wave4b 13 + wave5a 9 + wave5a2 16 + wave5b 16）。<br>
+• ✅ 剩余：<b>无</b>——波次 1~5 全部完成；仅剩 P2 远期（规划内未启动）与实机项。</div>
+
+<div style="max-width:1500px;margin:16px auto 0;background:#fff;border:1px solid #cfe3d4;border-left:4px solid var(--done);border-radius:14px;padding:14px 18px;font-size:13px;color:var(--text)">
+  <b style="color:var(--done)">✅ Rust 生产副端能力对齐（波次 3/4/5 + W1-1）· 2026-10-28 夜间收口</b><br>
+此前波次 3/4/5 仅落地 <b>Go 参考副端</b>，Rust 生产副端缺 11 个指令（sw_dist / file.*×6 / compliance_collect / patch_apply / sw_uninstall / peripheral_apply / nac_apply），且未上报软件清单 ⇒ 黑名单·漏洞·版本比对在生产副端全线失效。本批次补齐：<br>
+• 🟢 新增 <code>rust/agent/src/</code>：<code>wave3.rs</code> / <code>wave4.rs</code> / <code>wave5a.rs</code> / <code>wave5b.rs</code> / <code>swinv.rs</code>，语义与 Go 副端逐项对齐（同一套 action、同一套开关、同一套诚实回告）。<br>
+• 🟢 验证：<code>e2e_ragent_wave345.py</code>（同一套 Go 中枢，副端换成 Rust） <b>25/25 PASS</b>；Rust 单测 <b>114/114</b>；<code>cargo check --offline</code> 对 windows-gnu / linux-gnu 均 0 error。</div>
+
+<div class="board">
+
+  <!-- P0 缺口 -->
+  <div class="col">
+    <div class="col-head"><span class="col-dot" style="background:var(--p0)"></span><h2>P0 缺口 · 波次 3</h2><span class="col-count" style="background:var(--p0)">0 · 已完成</span></div>
+
+    <div class="card done"><div class="card-top"><span class="wv w3">波次3</span><span class="id">W3-1</span></div><div class="title">静默安装参数模板 + 自定义命令行</div><div class="meta"><span class="est s">S</span><span><b>PRD 5.3 D2</b></span><span>平台命令有，模板无</span><span class="ing">✅ 已完成 · e2e 12/12</span></div></div>
+
+    <div class="card done"><div class="card-top"><span class="wv w3">波次3</span><span class="id">W3-2</span></div><div class="title">分发任务（分组/全员 + 计划时间 + 强制/可选）</div><div class="meta"><span class="est m">M</span><span><b>PRD 5.3 D3</b></span><span>仅按设备 push</span><span class="ing">✅ 已完成 · e2e 12/12</span></div></div>
+
+    <div class="card done"><div class="card-top"><span class="wv w3">波次3</span><span class="id">W3-3</span></div><div class="title">版本比对差异升级 + 旧版卸载</div><div class="meta"><span class="est m">M</span><span><b>PRD 5.3 D6</b></span><span>依赖 W3-2</span><span class="ing">✅ 已完成 · e2e 12/12</span></div></div>
+
+    <div class="card done"><div class="card-top"><span class="wv w3">波次3</span><span class="id">W3-4</span></div><div class="title">分发失败自动重试</div><div class="meta"><span class="est s">S</span><span><b>PRD 5.3 D5</b></span><span>依赖 W3-2</span><span class="ing">✅ 已完成 · e2e 12/12</span></div></div>
+
+    <div class="card done"><div class="card-top"><span class="wv w3">波次3</span><span class="id">W3-5</span></div><div class="title">中枢高可用（双机热备/负载均衡）</div><div class="meta"><span class="est m">M</span><span><b>PRD 5.10 E4</b></span><span>多中枢有，热备无</span><span class="ing">✅ 已完成 · e2e 12/12</span></div></div>
+  </div>
+
+  <!-- P1 二期 -->
+  <div class="col">
+    <div class="col-head"><span class="col-dot" style="background:var(--p1)"></span><h2>P1 二期 · 波次 4–5</h2><span class="col-count" style="background:var(--p1)">0 · 已完成</span></div>
+
+    <div class="card done"><div class="card-top"><span class="wv w4">波次4</span><span class="id">W4-1</span></div><div class="title">文件/目录下发 + 从终端拉取（日志/取证）</div><div class="meta"><span class="est m">M</span><span><b>PRD 5.4</b></span><span>整域未开发</span><span class="ing">✅ 已完成 · e2e 15/15</span></div></div>
+
+    <div class="card done"><div class="card-top"><span class="wv w4">波次4</span><span class="id">W4-2</span></div><div class="title">定时/触发周期同步</div><div class="meta"><span class="est m">M</span><span><b>PRD 5.4</b></span><span>依赖 W4-1</span><span class="ing">✅ 已完成 · e2e 13/13（周期同步）</span></div></div>
+
+    <div class="card done"><div class="card-top"><span class="wv w4">波次4</span><span class="id">W4-3</span></div><div class="title">断点续传 + 哈希校验</div><div class="meta"><span class="est m">M</span><span><b>PRD 5.4</b></span><span>依赖 W4-1</span><span class="ing">✅ 已完成 · e2e 13/13（断点续传）</span></div></div>
+
+    <div class="card done"><div class="card-top"><span class="wv w4">波次4</span><span class="id">W4-4</span></div><div class="title">远程命令批量脚本 + 结果异常高亮</div><div class="meta"><span class="est m">M</span><span><b>PRD 5.5</b></span><span>仅单条即时</span><span class="ing">✅ 已完成 · e2e 15/15</span></div></div>
+
+    <div class="card done"><div class="card-top"><span class="wv w4">波次4</span><span class="id">W4-5</span></div><div class="title">危险操作二次确认 + 审批</div><div class="meta"><span class="est s">S</span><span><b>PRD 5.5</b></span><span>未开发</span><span class="ing">✅ 已完成 · e2e 15/15</span></div></div>
+
+    <div class="card done"><div class="card-top"><span class="wv w5">波次5</span><span class="id">W5-1</span></div><div class="title">合规基线检查（补丁/杀毒/防火墙/屏保）</div><div class="meta"><span class="est l">L</span><span><b>PRD 5.6</b></span><span>未开发</span><span class="ing">✅ 已完成 · e2e 9/9</span></div></div>
+
+    <div class="card done"><div class="card-top"><span class="wv w5">波次5</span><span class="id">W5-2</span></div><div class="title">违规软件黑名单检测</div><div class="meta"><span class="est m">M</span><span><b>PRD 5.6</b></span><span>依赖 W1-1</span><span class="ing">✅ 已完成 · e2e 16/16</span></div></div>
+
+    <div class="card done"><div class="card-top"><span class="wv w5">波次5</span><span class="id">W5-3</span></div><div class="title">外设管控（USB/光驱/蓝牙按部门）</div><div class="meta"><span class="est m">M</span><span><b>PRD 5.6</b></span><span>未开发</span><span class="ing">✅ 已完成 · e2e 16/16</span></div></div>
+
+    <div class="card done"><div class="card-top"><span class="wv w5">波次5</span><span class="id">W5-4</span></div><div class="title">网络准入（不合规限制内网访问，可选）</div><div class="meta"><span class="est m">M</span><span><b>PRD 5.6</b></span><span>依赖 W5-1</span><span class="ing">✅ 已完成 · e2e 16/16</span></div></div>
+
+    <div class="card done"><div class="card-top"><span class="wv w5">波次5</span><span class="id">W5-5</span></div><div class="title">漏洞扫描 + 补丁闭环</div><div class="meta"><span class="est l">L</span><span><b>PRD 5.6</b></span><span>依赖 W5-1</span><span class="ing">✅ 已完成 · e2e 16/16</span></div></div>
+
+    <div class="card done"><div class="card-top"><span class="wv w5">波次5</span><span class="id">W5-6</span></div><div class="title">策略中心（模板/分组/灰度+回滚/生效统计）</div><div class="meta"><span class="est m">M</span><span><b>PRD 5.7</b></span><span>依赖 W5-1~5</span><span class="ing">✅ 已完成 · e2e 22/22</span></div></div>
+
+    <div class="card done"><div class="card-top"><span class="wv w5">波次5</span><span class="id">W5-7</span></div><div class="title">报表与统计（覆盖率/在线率/合规率/远控）</div><div class="meta"><span class="est m">M</span><span><b>PRD 5.9</b></span><span>依赖 W1-6/W5-6</span><span class="ing">✅ 已完成 · e2e 16/16</span></div></div>
+  </div>
+
+  <!-- P2 远期 -->
+  <div class="col">
+    <div class="col-head"><span class="col-dot" style="background:var(--p2)"></span><h2>P2 远期 · 波次 6</h2><span class="col-count" style="background:var(--p2)">4</span></div>
+
+    <div class="card"><div class="card-top"><span class="wv w6">P2</span><span class="id">W6-1</span></div><div class="title">公网远程控制（穿透/中继，需先评估成本+合规）</div><div class="meta"><span class="est l">L</span><span><b>PRD 5.0/5.1</b></span><span>未启动</span></div></div>
+
+    <div class="card"><div class="card-top"><span class="wv w6">P2</span><span class="id">W6-2</span></div><div class="title">移动端控制台（Android/iOS）</div><div class="meta"><span class="est l">L</span><span><b>PRD §9</b></span><span>未开发</span></div></div>
+
+    <div class="card"><div class="card-top"><span class="wv w6">P2</span><span class="id">W6-3</span></div><div class="title">AI 异常检测</div><div class="meta"><span class="est l">L</span><span><b>PRD §9</b></span><span>未开发</span></div></div>
+
+    <div class="card"><div class="card-top"><span class="wv w6">P2</span><span class="id">W6-4</span></div><div class="title">外设管控 / 网络准入 / 漏洞闭环（P2 增强版）</div><div class="meta"><span class="est l">L</span><span><b>PRD 5.6</b></span><span>依赖 W5</span></div></div>
+  </div>
+
+  <!-- 实机待验 -->
+  <div class="col">
+    <div class="col-head"><span class="col-dot" style="background:var(--real)"></span><h2>实机待验 · 并行轨道</h2><span class="col-count" style="background:var(--real)">6</span></div>
+
+    <div class="card"><div class="card-top"><span class="wv real">实机</span><span class="id">R-1</span></div><div class="title">Windows 服务驻留（SCM 握手/守卫）</div><div class="meta"><span class="est s">S</span><span>需 Windows 机复跑</span></div></div>
+
+    <div class="card"><div class="card-top"><span class="wv real">实机</span><span class="id">R-2</span></div><div class="title">Windows 光标真实形状</div><div class="meta"><span class="est s">S</span><span>需 Windows 机</span></div></div>
+
+    <div class="card"><div class="card-top"><span class="wv real">实机</span><span class="id">R-3</span></div><div class="title">Linux VAAPI 编码器运行时</div><div class="meta"><span class="est s">S</span><span>需 Linux GPU</span></div></div>
+
+    <div class="card"><div class="card-top"><span class="wv real">实机</span><span class="id">R-4</span></div><div class="title">Linux/Windows 输入注入（XTest/SendInput）</div><div class="meta"><span class="est s">S</span><span>需对应实机</span></div></div>
+
+    <div class="card"><div class="card-top"><span class="wv real">实机</span><span class="id">R-5</span></div><div class="title">Windows/Linux 原生解码器（MF/VAAPI）</div><div class="meta"><span class="est s">S</span><span>需对应实机</span></div></div>
+
+    <div class="card"><div class="card-top"><span class="wv real">实机</span><span class="id">R-6</span></div><div class="title">主端视觉（QoS 浮层/引导页/台账）</div><div class="meta"><span class="est s">S</span><span>需 Tauri 实跑</span></div></div>
+  </div>
+
+  <!-- 已完成 -->
+  <div class="col">
+    <div class="col-head"><span class="col-dot" style="background:var(--done)"></span><h2>已完成</h2><span class="col-count" style="background:var(--done)">波次1 + 基线</span></div>
+
+    <div class="card done"><div class="card-top"><span class="wv done">✓</span><span class="id">W1-1</span></div><div class="title">软件资产清单采集（三平台）</div><div class="meta"><span class="est m">M</span><span><b>PRD 5.1 B2</b></span><span>Win 注册表三根键 / macOS Info.plist / dpkg+rpm</span></div></div>
+
+    <div class="card done"><div class="card-top"><span class="wv done">✓</span><span class="id">W1-2</span></div><div class="title">资产台账分组（部门/楼层/批次 + 标签）</div><div class="meta"><span class="est m">M</span><span><b>PRD 5.1 B3</b></span><span>中枢 API + 主端详情页编辑</span></div></div>
+
+    <div class="card done"><div class="card-top"><span class="wv done">✓</span><span class="id">W1-3</span></div><div class="title">生命周期流转（领用/调拨/归还/报废）</div><div class="meta"><span class="est m">M</span><span><b>PRD 5.1 B3</b></span><span>状态机 + 非法流转拒绝（code 2002）</span></div></div>
+
+    <div class="card done"><div class="card-top"><span class="wv done">✓</span><span class="id">W1-4</span></div><div class="title">资产变更检测（硬件变动/离线/IP 冲突）</div><div class="meta"><span class="est m">M</span><span><b>PRD 5.1 B4</b></span><span>注册时快照比对 + 同 IP 多设备</span></div></div>
+
+    <div class="card done"><div class="card-top"><span class="wv done">✓</span><span class="id">W1-5</span></div><div class="title">实时告警中心（离线/变更/IP 冲突）</div><div class="meta"><span class="est m">M</span><span><b>PRD 5.8 F2</b></span><span>未读去重 + 主端告警页 + 侧栏徽章</span></div></div>
+
+    <div class="card done"><div class="card-top"><span class="wv done">✓</span><span class="id">W1-6</span></div><div class="title">资产报表导出（Excel/CSV）</div><div class="meta"><span class="est s">S</span><span><b>PRD 5.1 B5</b></span><span>纯标准库 CSV + 最小合法 XLSX 写入器</span></div></div>
+
+    <div class="card done"><div class="card-top"><span class="wv done">✓</span><span class="id">W1-7</span></div><div class="title">日志留存与导出（合规期限）</div><div class="meta"><span class="est s">S</span><span><b>PRD 5.8 F4</b></span><span>审计导出 CSV/JSON，保留 WORM 哈希</span></div></div>
+
+    <div class="card done"><div class="card-top"><span class="wv done">✓</span><span class="id">W2-1</span></div><div class="title">会话内双向文件传输</div><div class="meta"><span class="est m">M</span><span><b>PRD 5.2 C4</b></span><span>SHA-256 校验 + 越界拉取拒绝</span></div></div>
+
+    <div class="card done"><div class="card-top"><span class="wv done">✓</span><span class="id">W2-2</span></div><div class="title">会话内聊天/备注</div><div class="meta"><span class="est s">S</span><span><b>PRD 5.2 C5</b></span><span>消息送达回告</span></div></div>
+
+    <div class="card done"><div class="card-top"><span class="wv done">✓</span><span class="id">W2-3</span></div><div class="title">水印 / 远端黑屏防窥视</div><div class="meta"><span class="est s">S</span><span><b>PRD 5.2 C7</b></span><span>画面控制回告 + 水印切换</span></div></div>
+
+    <div class="card done"><div class="card-top"><span class="wv done">✓</span><span class="id">W2-4</span></div><div class="title">敏感设备远程二级审批</div><div class="meta"><span class="est s">S</span><span><b>PRD 5.2 C9</b></span><span>待审批/工单/驳回/放行</span></div></div>
+
+    <div class="card done"><div class="card-top"><span class="wv done">✓</span><span class="id">W2-5</span></div><div class="title">会话超时断开 / 多会话强制结束</div><div class="meta"><span class="est s">S</span><span><b>PRD 5.2 C10</b></span><span>空闲超时自动结束 + kill</span></div></div>
+
+    <div class="card done"><div class="card-top"><span class="wv done">✓</span><span class="id">W2-6</span></div><div class="title">Ctrl+Alt+Del 直达（Windows）</div><div class="meta"><span class="est s">S</span><span><b>PRD 5.2 C11</b></span><span>CAD 指令明确回告</span></div></div>
+
+    <div class="card"><div class="card-top"><span class="wv done">✓</span><span class="id">M2–M6</span></div><div class="title">底座 / 资产 / 远控 / 分发 / 管理审计（基础版全通）</div><div class="meta"><span>macOS 实测 + e2e</span></div></div>
+
+    <div class="card"><div class="card-top"><span class="wv done">✓</span><span class="id">安全基座</span></div><div class="title">TLS/mTLS/证书固定 · argon2id · WORM 审计 · 多中枢总线 · PG</div><div class="meta"><span>端到端验证</span></div></div>
+
+    <div class="card"><div class="card-top"><span class="wv done">✓</span><span class="id">媒体环</span></div><div class="title">P2P 直连 + 二进制帧 + QoS/RTT/丢包自适应 + 原生编码器 ABI</div><div class="meta"><span>MF 实机 ✅，VAAPI 待 GPU</span></div></div>
+
+    <div class="card"><div class="card-top"><span class="wv done">✓</span><span class="id">T-1~T-4</span></div><div class="title">主端 Tauri 骨架/控制面 / relay / P2P+VT 解码 / TLS+打包+自更新</div><div class="meta"><span>e2e 9/9</span></div></div>
+
+    <div class="card"><div class="card-top"><span class="wv done">✓</span><span class="id">v0.1.3</span></div><div class="title">光标解耦 + 产品升级四项 + Windows 服务驻留</div><div class="meta"><span>已发布</span></div></div>
+
+    <div class="card"><div class="card-top"><span class="wv done">✓</span><span class="id">v0.1.4</span></div><div class="title">中枢证书生成修复 + Windows 脚本编码加固</div><div class="meta"><span>构建中</span></div></div>
+  </div>
+
+</div>
+
+<div class="foot">
+  <div class="legend">
+    <span><span class="dot" style="background:var(--p0)"></span><b>P0 缺口剩余</b> 波次3 · 5 项</span>
+    <span><span class="dot" style="background:var(--p1)"></span><b>P1 二期</b> 波次4–5 · 12 项</span>
+    <span><span class="dot" style="background:var(--p2)"></span><b>P2 远期</b> 波次6 · 4 项</span>
+    <span><span class="dot" style="background:var(--done)"></span><b>已完成</b> 波次1~5 全部（e2e 148/148，含 W5-6 22/22）</span>
+  </div>
+  <span>工作量估算：阶段1 剩余 ≈ 8–10 人·天（v0.2.x）· 阶段2 ≈ 9–11（v0.3.x）· 阶段3 ≈ 19–23（分 3–4 次 v0.4.x）</span>
+</div>
+
+</body>
+</html>

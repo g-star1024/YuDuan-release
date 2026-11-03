@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  御端（YuDuan）副端 —— macOS launchd 服务清单（系统级 LaunchDaemon）。
+  安装：sudo ./deploy/install-macos.sh   （会拷贝二进制与本 plist 并 bootstrap）
+  卸载：sudo ./deploy/install-macos.sh --uninstall
+  日志：/var/log/yuduan-agent.log
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.yuduan.agent</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/local/bin/yuduan-agent</string>
+    </array>
+
+    <!-- 默认不写死中枢地址：副端启动 UDP 广播自动发现（安装即注册）。
+         仅跨网段广播被隔离时才添加：YUDUAN_HUB = ws://<中枢IP>:8080/ws/agent -->
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>YUDUAN_HMAC_SECRET</key>
+        <string>CHANGE-ME-AT-DEPLOY</string>
+    </dict>
+
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>ThrottleInterval</key>
+    <integer>10</integer>
+    <key>ProcessType</key>
+    <string>Background</string>
+
+    <key>StandardOutPath</key>
+    <string>/var/log/yuduan-agent.log</string>
+    <key>StandardErrorPath</key>
+    <string>/var/log/yuduan-agent.log</string>
+</dict>
+</plist>

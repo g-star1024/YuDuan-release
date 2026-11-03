@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>御端 · 审计日志</title>
+  <style>
+    :root { --bg:#f4f5fa; --card:#fff; --line:#e4e7ef; --text:#1f2430; --muted:#6b7280; --brand:#1e3a8a; }
+    * { box-sizing:border-box; }
+    body { margin:0; font-family:-apple-system,"PingFang SC","Microsoft YaHei",Helvetica,Arial,sans-serif; background:var(--bg); color:var(--text); }
+    header { padding:16px 24px; background:var(--brand); color:#fff; display:flex; align-items:center; justify-content:space-between; }
+    header h1 { font-size:17px; margin:0; }
+    nav a { color:#fff; text-decoration:none; font-size:13px; opacity:.9; margin-left:14px; }
+    main { padding:20px 24px; max-width:1100px; margin:0 auto; }
+    table { width:100%; border-collapse:collapse; background:var(--card); border:1px solid var(--line); border-radius:14px; overflow:hidden; }
+    th,td { text-align:left; padding:9px 11px; font-size:13px; border-bottom:1px solid var(--line); white-space:nowrap; }
+    th { background:#fafbff; color:var(--muted); font-weight:600; }
+    .ok { color:#16a34a; } .fail { color:#dc2626; }
+    .empty { color:var(--muted); padding:14px; }
+    button { padding:8px 12px; border:1px solid var(--line); border-radius:10px; font-size:13px; background:#fff; cursor:pointer; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>御端 · 审计日志</h1>
+    <nav>
+      <a href="index.html">资产</a>
+      <a href="rc.html">远程控制</a>
+      <a href="software.html">软件分发</a>
+      <a href="#" id="logout">退出</a>
+    </nav>
+  </header>
+  <main>
+    <div style="display:flex;justify-content:space-between;align-items:center;">
+      <h2 style="font-size:15px;margin:12px 0;">操作审计（最近 200 条）</h2>
+      <div>
+        <button id="verifyBtn">校验审计链（WORM）</button>
+        <button id="refreshBtn">刷新</button>
+      </div>
+    </div>
+    <div id="chainMsg" style="font-size:13px;margin:8px 0;min-height:18px;"></div>
+    <div id="tbl"><div class="empty">加载中…</div></div>
+  </main>
+  <script src="auth.js"></script>
+  <script>
+    async function load() {
+      const j = await api('/api/v1/audit?limit=200');
+      const rows = (j.events||[]).map(e => `
+        <tr>
+          <td>${new Date(e.time*1000).toLocaleString('zh-CN')}</td>
+          <td>${e.actor}</td>
+          <td>${e.action}</td>
+          <td>${e.target||''}</td>
+          <td>${e.detail||''}</td>
+          <td class="${e.result==='success'?'ok':'fail'}">${e.result}</td>
+        </tr>`).join('');
+      document.getElementById('tbl').innerHTML = rows
+        ? `<table><thead><tr><th>时间</th><th>操作人</th><th>动作</th><th>对象</th><th>摘要</th><th>结果</th></tr></thead><tbody>${rows}</tbody></table>`
+        : '<div class="empty">暂无审计记录</div>';
+    }
+    document.getElementById('verifyBtn').onclick = async () => {
+      const el = document.getElementById('chainMsg');
+      el.textContent = '校验中…'; el.style.color = '#6b7280';
+      const j = await api('/api/v1/audit/verify');
+      if (j.valid) {
+        el.style.color = '#16a34a';
+        el.textContent = `审计链完整：已校验 ${j.checked} 条记录，哈希链无断裂`;
+      } else {
+        el.style.color = '#dc2626';
+        el.textContent = `审计链异常：${j.reason || '未知'}（first_bad_id=${j.first_bad_id}）`;
+      }
+    };
+    document.getElementById('refreshBtn').onclick = load;
+    load();
+  </script>
+</body>
+</html>
