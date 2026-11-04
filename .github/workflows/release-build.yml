@@ -32,6 +32,12 @@ on:
 permissions:
   contents: write
 
+# v0.4.21（2026-11-04）：同 tag 删推重跑时旧 run 可能仍在排队/运行，
+# 并发组保证同时只有一个 release run（新 run 进场自动取消排队中的旧 run）。
+concurrency:
+  group: release-${{ github.ref_name }}
+  cancel-in-progress: true
+
 jobs:
   build-hub:
     runs-on: ubuntu-latest
@@ -109,7 +115,13 @@ jobs:
           if-no-files-found: error
 
   build-macos:
-    runs-on: macos-latest
+    # v0.4.21 发版实测（2026-11-04 晚）：macos-latest 池连续两次
+    # "The job was not acquired by Runner of type hosted even after multiple attempts"
+    # + GitHub Internal server error（排队 15min 被收 / 运行 15min 被收，0 失败步骤，
+    # 其余平台全绿）——hosted macOS 池调度故障。pin 到 macos-15 固定镜像池规避；
+    # timeout-minutes 兜底防止构建悬挂无限占用；concurrency 防多 run 叠加互踩。
+    runs-on: macos-15
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
         with:
