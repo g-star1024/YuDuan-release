@@ -307,7 +307,17 @@ jobs:
           if-no-files-found: error
 
   publish:
-    needs: [build-macos, build-windows, build-hub, build-linux-agent]
+    # v0.4.21 发版夜（2026-11-04/05）：GitHub macOS hosted 池整体故障——连续 5 发
+    # build-macos 均在排队 ~15-17min 后被收（cancelled，0 失败步骤，其余平台全绿）。
+    # 拆关键路径：publish 不再等 macOS，Windows/Linux/hub 产物先行发布；
+    # macOS 产物等池恢复后 workflow_dispatch(source_ref=同 tag) 重跑补发
+    # （publish 对已存在的 Release 自动走 gh release upload --clobber 追加资产）。
+    needs: [build-windows, build-hub, build-linux-agent]
+    if: >-
+      always() &&
+      needs.build-windows.result == 'success' &&
+      needs.build-hub.result == 'success' &&
+      needs.build-linux-agent.result == 'success'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
@@ -324,12 +334,17 @@ jobs:
           mainexe=$(find dist-out/windows-client -name "yuduan-main.exe" | head -1)
           agentexe=$(find dist-out/windows-client -name "yuduan-agent.exe" | head -1)
           echo "dmg_arm=$dmg_arm"; echo "dmg_x64=$dmg_x64"; echo "main=$mainexe"; echo "agent=$agentexe"
-          cp "$dmg_arm" "release-files/YuDuan-main_${TAG}_macos_arm64.dmg"
-          cp "$dmg_x64" "release-files/YuDuan-main_${TAG}_macos_x64.dmg"
+          # macOS 产物条件复制：池故障期间 build-macos 不产出，缺文件跳过不挂发布
+          if [ -n "$dmg_arm" ]; then cp "$dmg_arm" "release-files/YuDuan-main_${TAG}_macos_arm64.dmg"; else echo "::warning::mac dmg arm 缺席（macOS 池故障），本次 Release 不含该产物"; fi
+          if [ -n "$dmg_x64" ]; then cp "$dmg_x64" "release-files/YuDuan-main_${TAG}_macos_x64.dmg"; else echo "::warning::mac dmg x64 缺席"; fi
           cp "$mainexe" "release-files/YuDuan-main_${TAG}_windows.exe"
           cp "$agentexe" "release-files/YuDuan-agent_${TAG}_windows.exe"
-          cp dist-out/macos-client/yuduan-agent-arm64 "release-files/YuDuan-agent_${TAG}_macos_arm64"
-          cp dist-out/macos-client/yuduan-agent-x64 "release-files/YuDuan-agent_${TAG}_macos_x64"
+          if [ -d dist-out/macos-client ]; then
+            cp dist-out/macos-client/yuduan-agent-arm64 "release-files/YuDuan-agent_${TAG}_macos_arm64" || echo "::warning::mac agent arm64 缺席"
+            cp dist-out/macos-client/yuduan-agent-x64 "release-files/YuDuan-agent_${TAG}_macos_x64" || echo "::warning::mac agent x64 缺席"
+          else
+            echo "::warning::macos-client artifact 缺席（macOS 池故障），本次 Release 不含 mac 产物"
+          fi
           cp dist-out/linux-agent/*.tar.gz "release-files/"
           cp dist-out/hub-all/*.tar.gz dist-out/hub-all/*.zip release-files/
           ls -la release-files/
