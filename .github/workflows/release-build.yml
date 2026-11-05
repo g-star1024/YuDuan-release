@@ -92,6 +92,27 @@ jobs:
              deploy/hub/cleanup.ps1 "$wdir/"
           (cd hub-pkg && zip -rq "../dist-out/YuDuan-hub_${TAG}_windows_amd64.zip" "yuduan-hub_${TAG}_windows_amd64")
 
+          # —— v0.4.24：服务器整包（hub + PostgreSQL 数据库附件）——
+          # 用户要求：出一个「带数据库附件的服务器版本」，离线/内网服务器解压即部署，
+          # register-task.ps1 自动检测包内 pgsql-windows-x64-binaries.zip，免公网下载。
+          # PG 用 EDB 官方便携包 16.9-1 固定版（与脚本 $PG_VERSION_PIN 一致，约 314MB）。
+      - name: Pack 服务器整包（hub + PostgreSQL 捆绑）
+        working-directory: dev
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          curl -L --retry 3 --retry-delay 3 --connect-timeout 20 \
+            -o /tmp/pgsql-windows-x64-binaries.zip \
+            "https://get.enterprisedb.com/postgresql/postgresql-16.9-1-windows-x64-binaries.zip"
+          # 完整性粗检：zip 魔数 + 体积下限（<300MB 视为截断，防半截包进 Release）
+          [ "$(head -c2 /tmp/pgsql-windows-x64-binaries.zip)" = "PK" ] || { echo "::error::PG 包魔数异常"; exit 1; }
+          sz=$(stat -c%s /tmp/pgsql-windows-x64-binaries.zip); echo "PG zip size=$sz"
+          [ "$sz" -gt 300000000 ] || { echo "::error::PG 包疑似截断（$sz bytes）"; exit 1; }
+          sdir="hub-pkg/yuduan-hub-server-db_${TAG}_windows_amd64"
+          cp -r "hub-pkg/yuduan-hub_${TAG}_windows_amd64" "$sdir"
+          cp /tmp/pgsql-windows-x64-binaries.zip "$sdir/"
+          (cd hub-pkg && zip -rq "../dist-out/YuDuan-hub-server-db_${TAG}_windows_amd64.zip" "yuduan-hub-server-db_${TAG}_windows_amd64")
+          ls -la dist-out/
+
           # —— macOS（launchd）——
           for arch in arm64 amd64; do
             CGO_ENABLED=0 GOOS=darwin GOARCH=$arch go build -trimpath \
@@ -376,6 +397,7 @@ jobs:
           ## 中枢（Linux / Windows / macOS）
           - YuDuan-hub_${TAG}_linux_amd64|arm64.tar.gz：systemd 部署，tar 解包 → sudo ./install.sh
           - YuDuan-hub_${TAG}_windows_amd64.zip：run-hub.cmd 前台运行 或 register-task.ps1 开机自启
+          - YuDuan-hub-server-db_${TAG}_windows_amd64.zip：**服务器整包（内置 PostgreSQL 16.9-1 数据库附件）**——离线/内网服务器首选，解压后直接跑 deploy.bat，PG 自动就绪免公网下载（约 320MB）
           - YuDuan-hub_${TAG}_macos_arm64|amd64.tar.gz：launchd 部署，sudo ./install-macos.sh
           - 均内含配置模板与 README-deploy.md（防火墙端口 / 生产检查清单 / 升级步骤）
 
