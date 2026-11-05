@@ -312,12 +312,17 @@ jobs:
     # 拆关键路径：publish 不再等 macOS，Windows/Linux/hub 产物先行发布；
     # macOS 产物等池恢复后 workflow_dispatch(source_ref=同 tag) 重跑补发
     # （publish 对已存在的 Release 自动走 gh release upload --clobber 追加资产）。
-    needs: [build-windows, build-hub, build-linux-agent]
+    needs: [build-macos, build-windows, build-hub, build-linux-agent]
+    # v0.4.21 补发修正：上一版 publish 不等 macos 出结论，三平台成功即启动，
+    # 导致 macos 构建完成时 publish 已结束（mac artifact 迟到未入包）。
+    # 现改为等 macos 出任意结论：success → 含 mac 产物 12/12；
+    # failure/cancelled/skipped（池故障）→ 8 产物照发不阻塞。
     if: >-
       always() &&
       needs.build-windows.result == 'success' &&
       needs.build-hub.result == 'success' &&
-      needs.build-linux-agent.result == 'success'
+      needs.build-linux-agent.result == 'success' &&
+      (needs.build-macos.result == 'success' || needs.build-macos.result == 'failure' || needs.build-macos.result == 'cancelled' || needs.build-macos.result == 'skipped')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
