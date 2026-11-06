@@ -72,9 +72,13 @@ jobs:
             mkdir -p "$dir"
             cp "/tmp/hub_linux_$arch" "$dir/yuduan-hub"
             cp "/tmp/ca_linux_$arch" "$dir/yuduan-ca"
+            # v0.4.25：README 已引用 init-ca.sh，且新增客户自建公网证书脚本，
+            # 两者必须随 Linux 中枢包分发（文档-产物一致性硬阻断项）。
             cp deploy/hub/env.example deploy/hub/README-deploy.md \
-               deploy/hub/install.sh deploy/hub/yuduan-hub.service "$dir/"
-            chmod +x "$dir/install.sh" "$dir/yuduan-hub" "$dir/yuduan-ca"
+               deploy/hub/install.sh deploy/hub/yuduan-hub.service \
+               deploy/hub/init-ca.sh deploy/hub/prepare-public-cert.sh "$dir/"
+            chmod +x "$dir/install.sh" "$dir/yuduan-hub" "$dir/yuduan-ca" \
+              "$dir/init-ca.sh" "$dir/prepare-public-cert.sh"
             tar -czf "dist-out/YuDuan-hub_${TAG}_linux_${arch}.tar.gz" -C hub-pkg "yuduan-hub_${TAG}_linux_${arch}"
           done
 
@@ -87,9 +91,11 @@ jobs:
           mkdir -p "$wdir"
           cp /tmp/hub_windows/yuduan-hub.exe "$wdir/"
           cp /tmp/hub_windows/yuduan-ca.exe "$wdir/"
+          # v0.4.25：Windows 侧客户自建公网证书脚本（PowerShell 版）随包分发；
+          # 下方 server-db 整包由本目录 cp -r 复制，自动继承该文件，无需再加一步。
           cp deploy/hub/env.example deploy/hub/README-deploy.md \
              deploy/hub/deploy.bat deploy/hub/run-hub.cmd deploy/hub/register-task.ps1 \
-             deploy/hub/cleanup.ps1 "$wdir/"
+             deploy/hub/cleanup.ps1 deploy/hub/prepare-public-cert.ps1 "$wdir/"
           (cd hub-pkg && zip -rq "../dist-out/YuDuan-hub_${TAG}_windows_amd64.zip" "yuduan-hub_${TAG}_windows_amd64")
 
           # —— v0.4.24：服务器整包（hub + PostgreSQL 数据库附件）——
@@ -123,8 +129,12 @@ jobs:
             mkdir -p "$dir"
             cp "/tmp/hub_darwin_$arch" "$dir/yuduan-hub"
             cp "/tmp/ca_darwin_$arch" "$dir/yuduan-ca"
-            cp deploy/hub/env.example deploy/hub/README-deploy.md deploy/hub/install-macos.sh "$dir/"
-            chmod +x "$dir/install-macos.sh" "$dir/yuduan-hub" "$dir/yuduan-ca"
+            # v0.4.25（拍板）：macOS 中枢包带 init-ca.sh + prepare-public-cert.sh，
+            # README 已引用 init-ca.sh，不能缺件。
+            cp deploy/hub/env.example deploy/hub/README-deploy.md deploy/hub/install-macos.sh \
+               deploy/hub/init-ca.sh deploy/hub/prepare-public-cert.sh "$dir/"
+            chmod +x "$dir/install-macos.sh" "$dir/yuduan-hub" "$dir/yuduan-ca" \
+              "$dir/init-ca.sh" "$dir/prepare-public-cert.sh"
             tar -czf "dist-out/YuDuan-hub_${TAG}_macos_${arch}.tar.gz" -C hub-pkg "yuduan-hub_${TAG}_macos_${arch}"
           done
           ls -la dist-out/
@@ -327,17 +337,91 @@ jobs:
           path: rust/agent/dist-out/*.tar.gz
           if-no-files-found: error
 
+  # v0.4.25：补齐 Linux arm64 副端产物（客户自建公网部署 + ARM 服务器诉求）。
+  # 采用原生 ARM runner（ubuntu-24.04-arm）+ 裸 rustc -O：runner 本身即 aarch64，
+  # 不指定 --target、不装交叉工具链、不加 targets:，规避交叉链接 X11/Xtst 时
+  # sysroot 与 -L 路径偏移（v0.4.21 多架构镜像版本偏移即此类问题）。
+  # 【降级设计】独立 job，publish 仅「追加上传」、不列入 success 断言：
+  # runner label 不可用 / 构建失败时，13 个既有产物照发，仅 ::warning:: 降级，
+  # 不拖垮关键路径（与 build-macos 池故障容错同一思路）。
+  build-agent-linux-arm64:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: g-star1024/YuDuan
+          ref: ${{ inputs.source_ref || github.ref_name }}
+          token: ${{ secrets.YUDUAN_RELEASE_TOKEN }}
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Linux build deps（X11/Xtst 原生库，arm64 原生包）
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libx11-dev libxtst-dev
+
+      - name: Build 副端 agent（Linux arm64 原生，std-only 单文件）
+        working-directory: rust/agent
+        run: |
+          mkdir -p dist-out
+          VER="${GITHUB_REF_NAME#v}"
+          YUDUAN_AGENT_VERSION="$VER" rustc -O src/main.rs -o dist-out/yuduan-agent-linux-arm64
+          GOT="$(./dist-out/yuduan-agent-linux-arm64 --version)"
+          echo "linux-arm64 $GOT"
+          [ "$GOT" = "yuduan-agent $VER" ] || { echo "::error::版本自检失败: got '$GOT' want 'yuduan-agent $VER'"; exit 1; }
+          ls -la dist-out/
+
+      - name: 验收 arm64 ELF（魔数 / file / 可执行位）
+        working-directory: rust/agent
+        run: |
+          bin=dist-out/yuduan-agent-linux-arm64
+          magic="$(od -An -tx1 -N4 "$bin" | tr -d ' \n')"
+          echo "ELF magic=$magic"
+          [ "$magic" = "7f454c46" ] || { echo "::error::非 ELF 文件（magic=$magic）"; exit 1; }
+          # 用命令替换而非管道：GitHub bash 默认 -o pipefail，grep -q 提前退出
+          # 可能让 file 收 SIGPIPE 造成误判。
+          desc="$(file -b "$bin")"
+          echo "file: $desc"
+          [[ "$desc" == *aarch64* ]] || { echo "::error::file 未识别为 ARM aarch64（疑似产出 amd64 二进制）：$desc"; exit 1; }
+          [ -x "$bin" ] || { echo "::error::缺少可执行位"; exit 1; }
+          echo "arm64 ELF / aarch64 / 可执行位 / --version 四项验收通过"
+
+      - name: 打包 Linux arm64 副端部署包（systemd + install.sh）
+        working-directory: rust/agent
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          mkdir -p dist-out/pkg
+          dir="dist-out/pkg/yuduan-agent_${TAG}_linux_arm64"
+          mkdir -p "$dir/systemd"
+          cp "dist-out/yuduan-agent-linux-arm64" "$dir/yuduan-agent"
+          cp deploy/install-linux.sh "$dir/install.sh"
+          cp deploy/systemd/yuduan-agent.service "$dir/systemd/yuduan-agent.service"
+          cp README.md "$dir/README.md"
+          chmod +x "$dir/install.sh" "$dir/yuduan-agent"
+          tar -czf "dist-out/YuDuan-agent_${TAG}_linux_arm64.tar.gz" -C "dist-out/pkg" "yuduan-agent_${TAG}_linux_arm64"
+          ls -la dist-out/*.tar.gz
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-agent-arm64
+          path: rust/agent/dist-out/*.tar.gz
+          if-no-files-found: error
+
   publish:
     # v0.4.21 发版夜（2026-11-04/05）：GitHub macOS hosted 池整体故障——连续 5 发
     # build-macos 均在排队 ~15-17min 后被收（cancelled，0 失败步骤，其余平台全绿）。
     # 拆关键路径：publish 不再等 macOS，Windows/Linux/hub 产物先行发布；
     # macOS 产物等池恢复后 workflow_dispatch(source_ref=同 tag) 重跑补发
     # （publish 对已存在的 Release 自动走 gh release upload --clobber 追加资产）。
-    needs: [build-macos, build-windows, build-hub, build-linux-agent]
+    needs: [build-macos, build-windows, build-hub, build-linux-agent, build-agent-linux-arm64]
     # v0.4.21 补发修正：上一版 publish 不等 macos 出结论，三平台成功即启动，
     # 导致 macos 构建完成时 publish 已结束（mac artifact 迟到未入包）。
-    # 现改为等 macos 出任意结论：success → 含 mac 产物 12/12；
-    # failure/cancelled/skipped（池故障）→ 8 产物照发不阻塞。
+    # 现改为等 macos 出任意结论：success → 含 mac 产物 14/14（v0.4.25 基线）；
+    # failure/cancelled/skipped（池故障）→ 10 个非 mac 产物照发不阻塞。
+    # v0.4.25：build-agent-linux-arm64 只进 needs、不进 success 断言——
+    # 原生 ARM runner 不可用或失败时 13 个既有产物照发，publish 内以
+    # artifact 目录守卫 + ::warning:: 降级，不拖垮关键路径。
     if: >-
       always() &&
       needs.build-windows.result == 'success' &&
@@ -372,6 +456,13 @@ jobs:
             echo "::warning::macos-client artifact 缺席（macOS 池故障），本次 Release 不含 mac 产物"
           fi
           cp dist-out/linux-agent/*.tar.gz "release-files/"
+          # v0.4.25：arm64 独立 job 的追加上传——产物目录存在才复制；
+          # 缺席（runner 不可用/构建失败）仅 warning，13 个既有产物照常发布。
+          if [ -d dist-out/linux-agent-arm64 ]; then
+            cp dist-out/linux-agent-arm64/*.tar.gz "release-files/" || echo "::warning::Linux arm64 副端 tar.gz 复制失败，本次 Release 不含该产物"
+          else
+            echo "::warning::Linux arm64 副端产物缺席（原生 ARM runner 故障/未就绪），13 个既有产物照发"
+          fi
           cp dist-out/hub-all/*.tar.gz dist-out/hub-all/*.zip release-files/
           ls -la release-files/
           # 版本串校验在各构建 job 内以「运行 --version」完成（v0.4.10）——二进制 grep
@@ -391,15 +482,15 @@ jobs:
           ## 客户端
           - macOS 主端：YuDuan-main_${TAG}_macos_arm64.dmg（Apple Silicon）/ _macos_x64.dmg（Intel）——ad-hoc 自签名（可消除「已损坏」误报；非 Developer ID 分发级签名，首次打开仍需右键 → 打开；免右键需开发者账号公证，暂缓）
           - Windows 主端：YuDuan-main_${TAG}_windows.exe（免安装，直接运行）
-          - Windows 副端：一键包 YuDuan-agent_${TAG}_windows_onekey.zip（解压后双击 deploy-agent.bat，自动清旧配置+装服务）；裸 exe YuDuan-agent_${TAG}_windows.exe；macOS 副端：YuDuan-agent_${TAG}_macos_arm64 / _macos_x64（MSVC/Rust 原生构建；启动后 UDP 自动发现中枢并注册，无需配置）
-          - Linux 副端：YuDuan-agent_${TAG}_linux_amd64.tar.gz（systemd 部署，tar 解包 → sudo ./install.sh；std-only 单文件）。arm64 交叉构建受 GitHub runner 多架构镜像版本偏移影响，暂缓，后续版本补齐
+          - Windows 副端：YuDuan-agent_${TAG}_windows.exe（双击即清旧配置+装服务+启动）；macOS 副端：YuDuan-agent_${TAG}_macos_arm64 / _macos_x64（MSVC/Rust 原生构建；局域网内启动后 UDP 自动发现中枢并注册，无需配置；客户自建公网部署须显式 YUDUAN_HUB，见包内 README-deploy.md）
+          - Linux 副端：YuDuan-agent_${TAG}_linux_amd64.tar.gz / YuDuan-agent_${TAG}_linux_arm64.tar.gz（systemd 部署，tar 解包 → sudo ./install.sh；std-only 单文件，arm64 为原生 ARM runner 构建）
 
           ## 中枢（Linux / Windows / macOS）
           - YuDuan-hub_${TAG}_linux_amd64|arm64.tar.gz：systemd 部署，tar 解包 → sudo ./install.sh
           - YuDuan-hub_${TAG}_windows_amd64.zip：run-hub.cmd 前台运行 或 register-task.ps1 开机自启
           - YuDuan-hub-server-db_${TAG}_windows_amd64.zip：**服务器整包（内置 PostgreSQL 16.9-1 数据库附件）**——离线/内网服务器首选，解压后直接跑 deploy.bat，PG 自动就绪免公网下载（约 320MB）
           - YuDuan-hub_${TAG}_macos_arm64|amd64.tar.gz：launchd 部署，sudo ./install-macos.sh
-          - 均内含配置模板与 README-deploy.md（防火墙端口 / 生产检查清单 / 升级步骤）
+          - 均内含配置模板与 README-deploy.md（防火墙端口 / 生产检查清单 / 升级步骤 / 客户自建公网部署）；Linux/macOS 包另含 init-ca.sh + prepare-public-cert.sh，Windows 包另含 prepare-public-cert.ps1
 
           对应源码版本见私有仓 g-star1024/YuDuan 标签 $TAG。"; then
             echo "::error::gh release create 失败，尝试向既有 release 追加资产"
