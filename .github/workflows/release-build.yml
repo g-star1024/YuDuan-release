@@ -68,17 +68,22 @@ jobs:
               -ldflags "-s -w" -o "/tmp/hub_linux_$arch" ./cmd/hub
             CGO_ENABLED=0 GOOS=linux GOARCH=$arch go build -trimpath \
               -ldflags "-s -w" -o "/tmp/ca_linux_$arch" ./cmd/ca
+            # v0.4.26（P1 公网可达最小闭环）：ACME 自动签发客户端随中枢包分发，
+            # 客户自建公网部署 -Public 流程调用 yuduan-acme issue 申请公网证书。
+            CGO_ENABLED=0 GOOS=linux GOARCH=$arch go build -trimpath \
+              -ldflags "-s -w" -o "/tmp/acme_linux_$arch" ./cmd/acme
             dir="hub-pkg/yuduan-hub_${TAG}_linux_${arch}"
             mkdir -p "$dir"
             cp "/tmp/hub_linux_$arch" "$dir/yuduan-hub"
             cp "/tmp/ca_linux_$arch" "$dir/yuduan-ca"
+            cp "/tmp/acme_linux_$arch" "$dir/yuduan-acme"
             # v0.4.25：README 已引用 init-ca.sh，且新增客户自建公网证书脚本，
             # 两者必须随 Linux 中枢包分发（文档-产物一致性硬阻断项）。
             cp deploy/hub/env.example deploy/hub/README-deploy.md \
                deploy/hub/install.sh deploy/hub/yuduan-hub.service \
                deploy/hub/init-ca.sh deploy/hub/prepare-public-cert.sh "$dir/"
             chmod +x "$dir/install.sh" "$dir/yuduan-hub" "$dir/yuduan-ca" \
-              "$dir/init-ca.sh" "$dir/prepare-public-cert.sh"
+              "$dir/yuduan-acme" "$dir/init-ca.sh" "$dir/prepare-public-cert.sh"
             tar -czf "dist-out/YuDuan-hub_${TAG}_linux_${arch}.tar.gz" -C hub-pkg "yuduan-hub_${TAG}_linux_${arch}"
           done
 
@@ -87,10 +92,14 @@ jobs:
             -ldflags "-s -w" -o "/tmp/hub_windows/yuduan-hub.exe" ./cmd/hub
           CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath \
             -ldflags "-s -w" -o "/tmp/hub_windows/yuduan-ca.exe" ./cmd/ca
+          # v0.4.26（P1）：ACME 客户端随 Windows 中枢包分发。
+          CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath \
+            -ldflags "-s -w" -o "/tmp/hub_windows/yuduan-acme.exe" ./cmd/acme
           wdir="hub-pkg/yuduan-hub_${TAG}_windows_amd64"
           mkdir -p "$wdir"
           cp /tmp/hub_windows/yuduan-hub.exe "$wdir/"
           cp /tmp/hub_windows/yuduan-ca.exe "$wdir/"
+          cp /tmp/hub_windows/yuduan-acme.exe "$wdir/"
           # v0.4.25：Windows 侧客户自建公网证书脚本（PowerShell 版）随包分发；
           # 下方 server-db 整包由本目录 cp -r 复制，自动继承该文件，无需再加一步。
           cp deploy/hub/env.example deploy/hub/README-deploy.md \
@@ -125,16 +134,20 @@ jobs:
               -ldflags "-s -w" -o "/tmp/hub_darwin_$arch" ./cmd/hub
             CGO_ENABLED=0 GOOS=darwin GOARCH=$arch go build -trimpath \
               -ldflags "-s -w" -o "/tmp/ca_darwin_$arch" ./cmd/ca
+            # v0.4.26（P1）：ACME 客户端随 macOS 中枢包分发。
+            CGO_ENABLED=0 GOOS=darwin GOARCH=$arch go build -trimpath \
+              -ldflags "-s -w" -o "/tmp/acme_darwin_$arch" ./cmd/acme
             dir="hub-pkg/yuduan-hub_${TAG}_macos_${arch}"
             mkdir -p "$dir"
             cp "/tmp/hub_darwin_$arch" "$dir/yuduan-hub"
             cp "/tmp/ca_darwin_$arch" "$dir/yuduan-ca"
+            cp "/tmp/acme_darwin_$arch" "$dir/yuduan-acme"
             # v0.4.25（拍板）：macOS 中枢包带 init-ca.sh + prepare-public-cert.sh，
             # README 已引用 init-ca.sh，不能缺件。
             cp deploy/hub/env.example deploy/hub/README-deploy.md deploy/hub/install-macos.sh \
                deploy/hub/init-ca.sh deploy/hub/prepare-public-cert.sh "$dir/"
             chmod +x "$dir/install-macos.sh" "$dir/yuduan-hub" "$dir/yuduan-ca" \
-              "$dir/init-ca.sh" "$dir/prepare-public-cert.sh"
+              "$dir/yuduan-acme" "$dir/init-ca.sh" "$dir/prepare-public-cert.sh"
             tar -czf "dist-out/YuDuan-hub_${TAG}_macos_${arch}.tar.gz" -C hub-pkg "yuduan-hub_${TAG}_macos_${arch}"
           done
           ls -la dist-out/
@@ -490,7 +503,7 @@ jobs:
           - YuDuan-hub_${TAG}_windows_amd64.zip：run-hub.cmd 前台运行 或 register-task.ps1 开机自启
           - YuDuan-hub-server-db_${TAG}_windows_amd64.zip：**服务器整包（内置 PostgreSQL 16.9-1 数据库附件）**——离线/内网服务器首选，解压后直接跑 deploy.bat，PG 自动就绪免公网下载（约 320MB）
           - YuDuan-hub_${TAG}_macos_arm64|amd64.tar.gz：launchd 部署，sudo ./install-macos.sh
-          - 均内含配置模板与 README-deploy.md（防火墙端口 / 生产检查清单 / 升级步骤 / 客户自建公网部署）；Linux/macOS 包另含 init-ca.sh + prepare-public-cert.sh，Windows 包另含 prepare-public-cert.ps1
+          - 均内含配置模板与 README-deploy.md（防火墙端口 / 生产检查清单 / 升级步骤 / 客户自建公网部署）；Linux/macOS 包另含 init-ca.sh + prepare-public-cert.sh + yuduan-acme（P1 公网证书 ACME 自动签发），Windows 包另含 prepare-public-cert.ps1 + yuduan-acme.exe
 
           对应源码版本见私有仓 g-star1024/YuDuan 标签 $TAG。"; then
             echo "::error::gh release create 失败，尝试向既有 release 追加资产"
