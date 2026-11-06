@@ -1,0 +1,75 @@
+name: build-linux-main
+
+# 独立按需构建 Linux 主端裸二进制，并追加到「既有 Release」（不触碰其他资产）。
+#
+# 用途：v0.4.26 已发布 14 资产后补出 Linux 主端包——零风险（仅上传本文件，--clobber 幂等），
+# 不会像重跑整条 release-build 那样因 macOS 池故障降级既有 mac 产物。
+# 触发：Actions → build-linux-main → Run workflow（source_ref / release_tag 默认 v0.4.26）。
+# 后续版本若要把 Linux 主端并进主发布流水线，release-build.yml 已内含 build-linux-main job。
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_ref:
+        description: "私有仓源码 ref（tag / 分支 / commit），默认 v0.4.26"
+        required: false
+        default: "v0.4.26"
+      release_tag:
+        description: "要追加资产的 Release 标签，默认 v0.4.26"
+        required: false
+        default: "v0.4.26"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: g-star1024/YuDuan
+          ref: ${{ inputs.source_ref }}
+          token: ${{ secrets.YUDUAN_RELEASE_TOKEN }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: main/package-lock.json
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Linux build deps（Tauri webkit2gtk + appindicator + librsvg）
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential curl wget file pkg-config libssl-dev \
+            libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev patchelf
+
+      - name: Build 主端（Linux amd64 裸二进制，--no-bundle）
+        working-directory: main
+        run: |
+          npm ci 2>&1 | tee build-main-linux.log
+          if [ ${PIPESTATUS[0]} -ne 0 ]; then exit 1; fi
+          npx tauri build --no-bundle 2>&1 | tee -a build-main-linux.log
+          if [ ${PIPESTATUS[0]} -ne 0 ]; then
+            grep -E "error(\[|:)" build-main-linux.log | tail -8 | sed 's/^/::error::/'
+            tail -3 build-main-linux.log | sed 's/^/::error::/'
+            exit 1
+          fi
+          BIN="src-tauri/target/release/yuduan-main"
+          [ -x "$BIN" ] || { echo "::error::Linux 主端二进制缺失或不可执行"; exit 1; }
+          echo "Linux 主端构建 OK: $(./$BIN --version 2>/dev/null || echo 'version 未知')"
+
+      - name: 追加到既有 Release（仅上传本文件，零风险）
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: g-star1024/YuDuan-release
+        run: |
+          TAG="${{ inputs.release_tag }}"
+          BIN="main/src-tauri/target/release/yuduan-main"
+          chmod +x "$BIN"
+          cp "$BIN" "YuDuan-main_${TAG}_linux_amd64"
+          gh release upload "$TAG" "YuDuan-main_${TAG}_linux_amd64" --clobber
+          gh release view "$TAG" --json name,assets -q '.name + " assets=" + (.assets | length | tostring)'

@@ -15,6 +15,7 @@
 #   - macOS：主端 Tauri .dmg（未签名，首开右键打开）
 #   - Windows：主端 yuduan-main.exe + 副端 yuduan-agent.exe（MSVC 原生构建，
 #     遵守发布纪律：不使用 macOS 交叉编译产物）
+#   - Linux：主端 yuduan-main（裸二进制，需系统预装 libwebkit2gtk-4.1 / libayatana-appindicator3 / librsvg2；.deb/AppImage 待补）
 #   - 中枢：Linux amd64/arm64 / Windows / macOS 全平台部署包
 
 name: release-build
@@ -421,13 +422,62 @@ jobs:
           path: rust/agent/dist-out/*.tar.gz
           if-no-files-found: error
 
+  build-linux-main:
+    # E 类（v0.4.26 补出）：Linux 主端裸二进制（Tauri --no-bundle），与 macOS/Windows 主端并列。
+    # 进 needs 但不进 success 硬断言——构建失败仅 ::warning:: 降级，不阻塞其余 14 产物发布。
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: g-star1024/YuDuan
+          ref: ${{ inputs.source_ref || github.ref_name }}
+          token: ${{ secrets.YUDUAN_RELEASE_TOKEN }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: main/package-lock.json
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Linux build deps（Tauri webkit2gtk + appindicator + librsvg）
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential curl wget file pkg-config libssl-dev \
+            libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev patchelf
+
+      - name: Build 主端（Linux amd64 裸二进制，--no-bundle）
+        working-directory: main
+        run: |
+          npm ci 2>&1 | tee build-main-linux.log
+          if [ ${PIPESTATUS[0]} -ne 0 ]; then exit 1; fi
+          npx tauri build --no-bundle 2>&1 | tee -a build-main-linux.log
+          if [ ${PIPESTATUS[0]} -ne 0 ]; then
+            echo "==================== error 行（最多 8 条）===================="
+            grep -E "error(\[|:)" build-main-linux.log | tail -8 | sed 's/^/::error::/'
+            echo "==================== 日志尾部 3 行 ===================="
+            tail -3 build-main-linux.log | sed 's/^/::error::/'
+            exit 1
+          fi
+          BIN="src-tauri/target/release/yuduan-main"
+          [ -x "$BIN" ] || { echo "::error::Linux 主端二进制缺失或不可执行"; exit 1; }
+          echo "Linux 主端构建 OK: $(./$BIN --version 2>/dev/null || echo 'version 未知')"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-main
+          path: main/src-tauri/target/release/yuduan-main
+          if-no-files-found: error
+
   publish:
     # v0.4.21 发版夜（2026-11-04/05）：GitHub macOS hosted 池整体故障——连续 5 发
     # build-macos 均在排队 ~15-17min 后被收（cancelled，0 失败步骤，其余平台全绿）。
     # 拆关键路径：publish 不再等 macOS，Windows/Linux/hub 产物先行发布；
     # macOS 产物等池恢复后 workflow_dispatch(source_ref=同 tag) 重跑补发
     # （publish 对已存在的 Release 自动走 gh release upload --clobber 追加资产）。
-    needs: [build-macos, build-windows, build-hub, build-linux-agent, build-agent-linux-arm64]
+    needs: [build-macos, build-windows, build-hub, build-linux-agent, build-agent-linux-arm64, build-linux-main]
     # v0.4.21 补发修正：上一版 publish 不等 macos 出结论，三平台成功即启动，
     # 导致 macos 构建完成时 publish 已结束（mac artifact 迟到未入包）。
     # 现改为等 macos 出任意结论：success → 含 mac 产物 14/14（v0.4.25 基线）；
@@ -440,7 +490,8 @@ jobs:
       needs.build-windows.result == 'success' &&
       needs.build-hub.result == 'success' &&
       needs.build-linux-agent.result == 'success' &&
-      (needs.build-macos.result == 'success' || needs.build-macos.result == 'failure' || needs.build-macos.result == 'cancelled' || needs.build-macos.result == 'skipped')
+      (needs.build-macos.result == 'success' || needs.build-macos.result == 'failure' || needs.build-macos.result == 'cancelled' || needs.build-macos.result == 'skipped') &&
+      (needs.build-linux-main.result == 'success' || needs.build-linux-main.result == 'failure' || needs.build-linux-main.result == 'cancelled' || needs.build-linux-main.result == 'skipped')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
@@ -461,6 +512,9 @@ jobs:
           if [ -n "$dmg_arm" ]; then cp "$dmg_arm" "release-files/YuDuan-main_${TAG}_macos_arm64.dmg"; else echo "::warning::mac dmg arm 缺席（macOS 池故障），本次 Release 不含该产物"; fi
           if [ -n "$dmg_x64" ]; then cp "$dmg_x64" "release-files/YuDuan-main_${TAG}_macos_x64.dmg"; else echo "::warning::mac dmg x64 缺席"; fi
           cp "$mainexe" "release-files/YuDuan-main_${TAG}_windows.exe"
+          # E 类：Linux 主端裸二进制（条件复制，缺件仅 warning 降级）
+          mainlinux=$(find dist-out/linux-main -name "yuduan-main" | head -1)
+          if [ -n "$mainlinux" ]; then cp "$mainlinux" "release-files/YuDuan-main_${TAG}_linux_amd64"; else echo "::warning::Linux 主端二进制缺席（构建失败/跳过），本次 Release 不含该产物"; fi
           cp "$agentexe" "release-files/YuDuan-agent_${TAG}_windows.exe"
           if [ -d dist-out/macos-client ]; then
             cp dist-out/macos-client/yuduan-agent-arm64 "release-files/YuDuan-agent_${TAG}_macos_arm64" || echo "::warning::mac agent arm64 缺席"
@@ -495,6 +549,7 @@ jobs:
           ## 客户端
           - macOS 主端：YuDuan-main_${TAG}_macos_arm64.dmg（Apple Silicon）/ _macos_x64.dmg（Intel）——ad-hoc 自签名（可消除「已损坏」误报；非 Developer ID 分发级签名，首次打开仍需右键 → 打开；免右键需开发者账号公证，暂缓）
           - Windows 主端：YuDuan-main_${TAG}_windows.exe（免安装，直接运行）
+          - Linux 主端：YuDuan-main_${TAG}_linux_amd64（裸二进制，chmod +x 后直接运行；需系统预装 libwebkit2gtk-4.1 / libayatana-appindicator3 / librsvg2；桌面 .desktop 集成与依赖打包 .deb/AppImage 待后续版本补齐）
           - Windows 副端：YuDuan-agent_${TAG}_windows.exe（双击即清旧配置+装服务+启动）；macOS 副端：YuDuan-agent_${TAG}_macos_arm64 / _macos_x64（MSVC/Rust 原生构建；局域网内启动后 UDP 自动发现中枢并注册，无需配置；客户自建公网部署须显式 YUDUAN_HUB，见包内 README-deploy.md）
           - Linux 副端：YuDuan-agent_${TAG}_linux_amd64.tar.gz / YuDuan-agent_${TAG}_linux_arm64.tar.gz（systemd 部署，tar 解包 → sudo ./install.sh；std-only 单文件，arm64 为原生 ARM runner 构建）
 
