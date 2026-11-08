@@ -384,13 +384,19 @@ jobs:
       # 仅当仓库配置 WIN_CODESIGN_PFX(base64) + WIN_CODESIGN_PWD 时签名；缺则跳过、不报错。
       # RFC3161 时间戳（DigiCert）保证签名长期有效；无证书的开源构建自动跳过。
       - name: Authenticode sign（agent + main，signtool）
-        if: ${{ secrets.WIN_CODESIGN_PFX != '' }}
         working-directory: rust/agent
         shell: pwsh
         env:
           WIN_CODESIGN_PFX: ${{ secrets.WIN_CODESIGN_PFX }}
           WIN_CODESIGN_PWD: ${{ secrets.WIN_CODESIGN_PWD }}
         run: |
+          # 门控：仅当仓库配置 WIN_CODESIGN_PFX(base64) 时签名；缺则跳过、不报错。
+          # 注意：GitHub Actions 不允许在 if: 条件里引用 secrets 上下文，
+          # 故改在脚本体内判定（与上方 osslsigncode 块一致）。
+          if ([string]::IsNullOrEmpty($env:WIN_CODESIGN_PFX)) {
+            Write-Output "::warning::未配置 WIN_CODESIGN_PFX，跳过 Authenticode 签名（无证书开源构建）"
+            exit 0
+          }
           $ErrorActionPreference = 'Stop'
           $pfx = Join-Path $env:RUNNER_TEMP "yd-codesign.pfx"
           [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:WIN_CODESIGN_PFX))
