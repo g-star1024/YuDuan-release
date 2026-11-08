@@ -42,6 +42,10 @@ concurrency:
 jobs:
   build-hub:
     runs-on: ubuntu-latest
+    env:
+      # F-09：workflow_dispatch 补发时 GITHUB_REF_NAME 是分支名 main，
+      # 用 source_ref（tag）优先的 RELEASE_TAG 供 PE 版本资源取版本号，避免写出 "main"。
+      RELEASE_TAG: ${{ inputs.source_ref || github.ref_name }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -89,6 +93,35 @@ jobs:
           done
 
           # —— Windows（控制台/计划任务）——
+          # —— F-09：为 Windows Go 三 exe 注入 PE 版本资源（goversioninfo 编译期 .syso）——
+          # hub/ca/acme.exe 在本 job 交叉编译、各出现 2 份（hub 包 + server-db 整包
+          # cp -r），故在「出生地」编译期注入 .syso 天然覆盖两份副本；rcedit 仅用于
+          # 本 job 不产出的 Rust agent.exe（见 build-windows）。
+          VER="${RELEASE_TAG#v}"
+          [ -n "$VER" ] || VER="${GITHUB_REF_NAME#v}"
+          IFS='.' read -r MA MI PA <<< "$VER"
+          # VER 可能是分支名（如 main）：非纯数字段归 0，并对前导零用 10# 归一，
+          # 避免 jq --argjson 收到非法 JSON 数字而崩溃。
+          [[ "$MA" =~ ^[0-9]+$ ]] || MA=0
+          [[ "$MI" =~ ^[0-9]+$ ]] || MI=0
+          [[ "$PA" =~ ^[0-9]+$ ]] || PA=0
+          MA=$((10#$MA)); MI=$((10#$MI)); PA=$((10#$PA))
+          go install github.com/josephspurrier/goversioninfo/cmd/goversioninfo@v1.4.0
+          GV="$(go env GOPATH)/bin/goversioninfo"
+          for pkg in hub ca acme; do
+            # 从 dev/versioninfo.json 模板（本 step working-directory=dev）覆盖版本字段
+            jq --arg v "$VER" --argjson ma "$MA" --argjson mi "$MI" --argjson pa "$PA" \
+              '.FixedFileInfo.FileVersion = {"Major":$ma,"Minor":$mi,"Patch":$pa,"Build":0}
+               | .FixedFileInfo.ProductVersion = {"Major":$ma,"Minor":$mi,"Patch":$pa,"Build":0}
+               | .StringFileInfo.FileVersion = $v
+               | .StringFileInfo.ProductVersion = $v' \
+              versioninfo.json > "cmd/$pkg/versioninfo.json"
+            # -64 必需：v1.4.0 不读 GOARCH 环境变量，缺 -64 会生成 i386 COFF，
+            # windows/amd64 链接报 "unknown relocation type 7"（本机实跑实锤）。
+            # 文件名带 _windows_amd64 后缀：Go 仅在 GOOS=windows GOARCH=amd64 链接它，
+            # 后续 macOS/Linux 构建自动忽略（本机 4 目标交叉编译实锤），无需清理。
+            ( cd "cmd/$pkg" && GOOS=windows GOARCH=amd64 "$GV" -64 -o "rsrc_windows_amd64.syso" versioninfo.json )
+          done
           CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath \
             -ldflags "-s -w" -o "/tmp/hub_windows/yuduan-hub.exe" ./cmd/hub
           CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath \
@@ -96,6 +129,9 @@ jobs:
           # v0.4.26（P1）：ACME 客户端随 Windows 中枢包分发。
           CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath \
             -ldflags "-s -w" -o "/tmp/hub_windows/yuduan-acme.exe" ./cmd/acme
+          # F-09 CI 内自检：三 exe 均须含本版 PE 版本串（UTF-16LE），缺一即阻断，
+          # 不发出无版本 exe。纯标准库、零外部依赖（无需 pefile）。
+          python3 -c 'import sys; v=sys.argv[1].encode("utf-16-le"); ns=("yuduan-hub.exe","yuduan-ca.exe","yuduan-acme.exe"); base="/tmp/hub_windows/"; bad=[n for n in ns if v not in open(base+n,"rb").read()]; sys.exit("::error::缺 PE 版本资源: "+",".join(bad)) if bad else print("3 个 Windows exe 版本资源 OK:", sys.argv[1])' "$VER"
           wdir="hub-pkg/yuduan-hub_${TAG}_windows_amd64"
           mkdir -p "$wdir"
           cp /tmp/hub_windows/yuduan-hub.exe "$wdir/"
@@ -234,6 +270,9 @@ jobs:
 
   build-windows:
     runs-on: windows-latest
+    env:
+      # F-09：同 build-hub，补发场景用 RELEASE_TAG 取版本号，避免写出 "main"。
+      RELEASE_TAG: ${{ inputs.source_ref || github.ref_name }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -274,6 +313,50 @@ jobs:
             Select-String -Path build-main.log -Pattern "error(\[|:)" | Select-Object -Last 8 | ForEach-Object { Write-Output "::error::$($_.Line.Trim())" }
             Write-Output "==================== 日志尾部 3 行 ===================="
             Get-Content build-main.log -Tail 3 | ForEach-Object { Write-Output "::error::$($_.Trim())" }
+            exit 1
+          }
+
+      # F-09：为 Rust agent.exe 注入 PE 版本资源。该 exe 由 rustc -O 直出、无
+      # tauri-winres，故用 rcedit 在构建后写 VERSIONINFO；yuduan-main.exe 已由
+      # tauri-winres 带版本资源，不在此处理。Go 三 exe 由 build-hub 用 .syso 注入。
+      # 落点在 Build 主端之后：failure() 日志分支假定 main/build-main.log 已存在，
+      # 若本 step 在主端构建之前失败会连带触发该分支却缺主端日志、掩盖真实根因。
+      - name: 注入 PE 版本资源到 agent.exe（F-09 rcedit）
+        working-directory: rust/agent
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $VER = ($env:RELEASE_TAG -replace '^v','')
+          if ([string]::IsNullOrEmpty($VER)) { $VER = ($env:GITHUB_REF_NAME -replace '^v','') }
+          Write-Output "目标版本 VER=$VER"
+          $rc = "$env:RUNNER_TEMP\rcedit-x64.exe"
+          curl.exe -L --retry 3 --connect-timeout 20 -o $rc `
+            "https://github.com/electron/rcedit/releases/download/v1.1.1/rcedit-x64.exe"
+          if ($LASTEXITCODE -ne 0) { Write-Output "::error::rcedit 下载失败"; exit 1 }
+          # 硬校验 rcedit-x64.exe v1.1.1 官方发布件 sha256（本机 shasum 实锤）
+          $expected = '02E8E8C5D430D8B768980F517B62D7792D690982B9BA0F7E04163CBC1A6E7915'
+          $actual = (Get-FileHash $rc -Algorithm SHA256).Hash
+          Write-Output "rcedit sha256=$actual"
+          if ($actual -ne $expected) {
+            Write-Output "::error::rcedit sha256 校验失败: got $actual want $expected"
+            exit 1
+          }
+          # 版本字符串/描述一律 ASCII，规避 Windows runner 上 native exe 参数编码问题。
+          # 显式 set-version-string 把 StringFileInfo 字面钉死为 3 段的 $VER：
+          # rcedit --set-file-version 对 3 段串可能补第 4 段 ".0"，若读回成 4 段
+          # 会与下方 $VER 严格自检不符而误判阻断发布。
+          & $rc "yuduan-agent.exe" --set-file-version "$VER" --set-product-version "$VER" `
+            --set-version-string "ProductName" "YuDuan" `
+            --set-version-string "FileDescription" "YuDuan Rust Agent" `
+            --set-version-string "CompanyName" "YuDuan" `
+            --set-version-string "FileVersion" "$VER" `
+            --set-version-string "ProductVersion" "$VER"
+          if ($LASTEXITCODE -ne 0) { Write-Output "::error::rcedit 写入版本资源失败"; exit 1 }
+          # CI 内自带验收：读回 PE 版本资源，任一不符即阻断，不发出无版本 exe
+          $vi = (Get-Item "yuduan-agent.exe").VersionInfo
+          Write-Output "agent.exe FileVersion=$($vi.FileVersion) ProductVersion=$($vi.ProductVersion)"
+          if ($vi.FileVersion -ne $VER -or $vi.ProductVersion -ne $VER) {
+            Write-Output "::error::agent.exe 版本资源自检失败: FileVersion=$($vi.FileVersion) ProductVersion=$($vi.ProductVersion) want $VER"
             exit 1
           }
 
