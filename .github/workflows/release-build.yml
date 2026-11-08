@@ -63,6 +63,9 @@ jobs:
 
       - name: Build 中枢（linux/windows/macos 全平台）
         working-directory: dev
+        env:
+          WIN_CODESIGN_PFX: ${{ secrets.WIN_CODESIGN_PFX }}
+          WIN_CODESIGN_PWD: ${{ secrets.WIN_CODESIGN_PWD }}
         run: |
           TAG="${GITHUB_REF_NAME}"
           mkdir -p dist-out
@@ -132,6 +135,23 @@ jobs:
           # F-09 CI 内自检：三 exe 均须含本版 PE 版本串（UTF-16LE），缺一即阻断，
           # 不发出无版本 exe。纯标准库、零外部依赖（无需 pefile）。
           python3 -c 'import sys; v=sys.argv[1].encode("utf-16-le"); ns=("yuduan-hub.exe","yuduan-ca.exe","yuduan-acme.exe"); base="/tmp/hub_windows/"; bad=[n for n in ns if v not in open(base+n,"rb").read()]; sys.exit("::error::缺 PE 版本资源: "+",".join(bad)) if bad else print("3 个 Windows exe 版本资源 OK:", sys.argv[1])' "$VER"
+
+          # —— v0.4.30：门控 Authenticode 签名（Windows Go 三 exe，osslsigncode）——
+          # 仅当仓库配置 WIN_CODESIGN_PFX(base64) + WIN_CODESIGN_PWD 时签名；缺则跳过、不报错
+          # （保持无证书的开源构建可用）。自带 OV/EV 证书：把 .pfx base64 后存为仓库 Secret 即可。
+          if [ -n "${WIN_CODESIGN_PFX:-}" ]; then
+            echo "$WIN_CODESIGN_PFX" | base64 -d > /tmp/codesign.pfx
+            command -v osslsigncode >/dev/null 2>&1 || { sudo apt-get update -y && sudo apt-get install -y osslsigncode; }
+            for e in yuduan-hub yuduan-ca yuduan-acme; do
+              osslsigncode sign -pkcs12 /tmp/codesign.pfx -pass "$WIN_CODESIGN_PWD" -h sha256 \
+                -n "YuDuan" -in "/tmp/hub_windows/$e.exe" -out "/tmp/hub_windows/${e}.signed.exe"
+              mv -f "/tmp/hub_windows/${e}.signed.exe" "/tmp/hub_windows/$e.exe"
+            done
+            rm -f /tmp/codesign.pfx
+            echo "Authenticode 签名完成（Go 三 exe：hub/ca/acme）"
+          else
+            echo "::warning::未配置 WIN_CODESIGN_PFX，跳过 Authenticode 签名（无证书开源构建）"
+          fi
           wdir="hub-pkg/yuduan-hub_${TAG}_windows_amd64"
           mkdir -p "$wdir"
           cp /tmp/hub_windows/yuduan-hub.exe "$wdir/"
@@ -359,6 +379,31 @@ jobs:
             Write-Output "::error::agent.exe 版本资源自检失败: FileVersion=$($vi.FileVersion) ProductVersion=$($vi.ProductVersion) want $VER"
             exit 1
           }
+
+      # v0.4.30：门控 Authenticode 签名（Rust agent.exe + Tauri main.exe，signtool）。
+      # 仅当仓库配置 WIN_CODESIGN_PFX(base64) + WIN_CODESIGN_PWD 时签名；缺则跳过、不报错。
+      # RFC3161 时间戳（DigiCert）保证签名长期有效；无证书的开源构建自动跳过。
+      - name: Authenticode sign（agent + main，signtool）
+        if: ${{ secrets.WIN_CODESIGN_PFX != '' }}
+        working-directory: rust/agent
+        shell: pwsh
+        env:
+          WIN_CODESIGN_PFX: ${{ secrets.WIN_CODESIGN_PFX }}
+          WIN_CODESIGN_PWD: ${{ secrets.WIN_CODESIGN_PWD }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $pfx = Join-Path $env:RUNNER_TEMP "yd-codesign.pfx"
+          [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:WIN_CODESIGN_PFX))
+          $st = (Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin" -Recurse -Filter signtool.exe -ErrorAction SilentlyContinue | Select-Object -First 1).FullName
+          if (-not $st) { Write-Output "::error::未找到 signtool.exe（Windows SDK 缺失）"; exit 1 }
+          foreach ($rel in @("yuduan-agent.exe", "../main/src-tauri/target/release/yuduan-main.exe")) {
+            $exe = Resolve-Path $rel -ErrorAction SilentlyContinue
+            if (-not $exe) { Write-Output "::error::签名目标缺失: $rel"; exit 1 }
+            & $st sign /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 /f $pfx /p $env:WIN_CODESIGN_PWD $exe
+            if ($LASTEXITCODE -ne 0) { Write-Output "::error::signtool 签名失败: $exe"; exit 1 }
+          }
+          Remove-Item $pfx -Force
+          Write-Output "Authenticode 签名完成（agent + main）"
 
       - name: 失败时推日志到 ci-logs-win 分支
         if: failure()
