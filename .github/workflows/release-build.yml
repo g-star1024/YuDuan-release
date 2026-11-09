@@ -606,28 +606,46 @@ jobs:
           if-no-files-found: error
 
   publish:
-    # v0.4.21 发版夜（2026-11-04/05）：GitHub macOS hosted 池整体故障——连续 5 发
-    # build-macos 均在排队 ~15-17min 后被收（cancelled，0 失败步骤，其余平台全绿）。
-    # 拆关键路径：publish 不再等 macOS，Windows/Linux/hub 产物先行发布；
-    # macOS 产物等池恢复后 workflow_dispatch(source_ref=同 tag) 重跑补发
-    # （publish 对已存在的 Release 自动走 gh release upload --clobber 追加资产）。
-    needs: [build-macos, build-windows, build-hub, build-linux-agent, build-agent-linux-arm64, build-linux-main]
-    # v0.4.21 补发修正：上一版 publish 不等 macos 出结论，三平台成功即启动，
-    # 导致 macos 构建完成时 publish 已结束（mac artifact 迟到未入包）。
-    # 现改为等 macos 出任意结论：success → 含 mac 产物 14/14（v0.4.25 基线）；
-    # failure/cancelled/skipped（池故障）→ 10 个非 mac 产物照发不阻塞。
-    # v0.4.25：build-agent-linux-arm64 只进 needs、不进 success 断言——
-    # 原生 ARM runner 不可用或失败时 13 个既有产物照发，publish 内以
-    # artifact 目录守卫 + ::warning:: 降级，不拖垮关键路径。
+    # v0.4.36 修正（2026-11-10）：GitHub Actions 在「needs 中任一 job 被 cancelled」
+    # 时会**无条件跳过**下游 job，且 if: 中的 needs.X.result=='cancelled' 无法救回
+    # （实测两次发版 build-macos 池故障 cancelled → publish 被 skipped → 零 Release）。
+    # 故 macOS 与 Linux-arm64 这两个「尽力而为」产物**必须移出 needs**，
+    # 仅由 publish 内的 artifact 目录守卫 + ::warning:: 降级处理缺席；
+    # 关键路径（必须成功）仅剩 build-windows/build-hub/build-linux-agent/build-linux-main。
+    # 历史（保留）：v0.4.21 发版夜 macOS hosted 池整体故障，连续 5 发 build-macos
+    # 排队 ~15-17min 后被收（cancelled，0 失败步骤，其余平台全绿）——当时即拆关键路径。
+    # macOS 池恢复后：gh release upload --clobber 追加 mac 产物，或
+    # workflow_dispatch(source_ref=同 tag) 重跑（publish 对已存在 Release 追加资产）。
+    needs: [build-windows, build-hub, build-linux-agent, build-linux-main]
     if: >-
       always() &&
       needs.build-windows.result == 'success' &&
       needs.build-hub.result == 'success' &&
       needs.build-linux-agent.result == 'success' &&
-      (needs.build-macos.result == 'success' || needs.build-macos.result == 'failure' || needs.build-macos.result == 'cancelled' || needs.build-macos.result == 'skipped') &&
-      (needs.build-linux-main.result == 'success' || needs.build-linux-main.result == 'failure' || needs.build-linux-main.result == 'cancelled' || needs.build-linux-main.result == 'skipped')
+      needs.build-linux-main.result == 'success'
     runs-on: ubuntu-latest
     steps:
+      # v0.4.36 修正：build-macos 已移出 needs（避免其 cancelled 时 publish 被整job跳过）。
+      # 但为兼顾「macOS 健康但构建慢」场景（避免漏打 mac 产物），此处轮询当前 run 的
+      # build-macos job 终态：success → 下方 download 能取到 mac artifact（15/15）；
+      # cancelled/failure/skipped → 跳过 mac（已有 ::warning:: 降级，13 个非 mac 产物照发）。
+      # 轮询有上限，超时按「缺席」降级，绝不死等。
+      - name: 等待 build-macos 终态（不阻塞于 cancelled）
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ github.run_id }}
+          REPO: ${{ github.repository }}
+        run: |
+          for i in $(seq 1 90); do
+            st=$(curl -s -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/$REPO/actions/runs/$RUN_ID/jobs?per_page=100" \
+              | python3 -c "import sys,json; d=json.load(sys.stdin,strict=False); js=d.get('jobs',[]); print(next((j.get('conclusion') or j.get('status') for j in js if j.get('name')=='build-macos'),'none'))")
+            echo "build-macos state=$st (try $i)"
+            case "$st" in
+              success|failure|cancelled|skipped) break;;
+              *) sleep 20;;
+            esac
+          done
       - uses: actions/download-artifact@v4
         with:
           path: dist-out
