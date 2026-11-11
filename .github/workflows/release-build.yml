@@ -429,31 +429,44 @@ jobs:
         working-directory: rust/agent
         shell: pwsh
         run: |
+          # 自诊断：全阶段 sc 输出落 main/v3-assert.log，失败时随 ci-logs-win 分支推送
+          #（.gitignore 忽略 *.log，log-push 必须 git add -f；此前日志从未真正落地）。
           $ErrorActionPreference = 'Continue'
+          $diag = "..\..\main\v3-assert.log"
+          "=== V3 断言 $(Get-Date -Format HH:mm:ss) ===" | Set-Content -Path $diag
+          function Write-V3([string]$m) { Write-Output $m; Add-Content -Path $diag -Value $m }
           $name = 'yuduan-agent-ci'
-          $exe = (Resolve-Path ".\yuduan-agent.exe").Path
-          sc.exe create $name binPath= "`"$exe`"" start= demand | Out-Null
-          if ($LASTEXITCODE -ne 0) { Write-Output "::error::sc create 失败 exit=$LASTEXITCODE"; exit 1 }
-          $t0 = Get-Date
-          sc.exe start $name | Out-Null
+          # exe 复制到无空格路径，消除 sc binPath 引号传递的不确定性
+          $exe = Join-Path $env:RUNNER_TEMP "yuduan-agent-ci.exe"
+          Copy-Item ".\yuduan-agent.exe" $exe -Force
+          $create = sc.exe create $name binPath= "$exe" start= demand 2>&1 | Out-String
+          Write-V3 "create exit=$LASTEXITCODE out=$($create.Trim())"
+          if ($LASTEXITCODE -ne 0) { Write-V3 "FAIL: sc create"; sc.exe delete $name | Out-Null; exit 1 }
+          $start = sc.exe start $name 2>&1 | Out-String
+          Write-V3 "start exit=$LASTEXITCODE out=$($start.Trim())"
           if ($LASTEXITCODE -ne 0) {
-            Write-Output "::error::sc start 失败 exit=$LASTEXITCODE"
+            Write-V3 "FAIL: sc start（服务未达 RUNNING）"
+            $q1 = sc.exe query $name 2>&1 | Out-String; Write-V3 "query-after-start=$($q1.Trim())"
             sc.exe delete $name | Out-Null
             exit 1
           }
           Start-Sleep -Seconds 3
-          sc.exe stop $name | Out-Null
+          $q2 = sc.exe query $name 2>&1 | Out-String
+          Write-V3 "query-before-stop=$($q2.Trim())"
+          $stop = sc.exe stop $name 2>&1 | Out-String
+          Write-V3 "stop exit=$LASTEXITCODE out=$($stop.Trim())"
           $stopOk = ($LASTEXITCODE -eq 0)
           $stopped = $false
           for ($i = 0; $i -lt 10; $i++) {
             Start-Sleep -Milliseconds 500
-            if (sc.exe query $name | Select-String 'STOPPED') { $stopped = $true; break }
+            $q = sc.exe query $name 2>&1 | Out-String
+            if ($q -match 'STOPPED') { $stopped = $true; Write-V3 "stopped after $(($i+1)*0.5)s"; break }
           }
-          $elapsed = [math]::Round(((Get-Date) - $t0).TotalSeconds, 1)
-          Write-Output "V3 CI 断言: stopOk=$stopOk stopped=$stopped elapsed=${elapsed}s"
+          if (-not $stopped) { $q3 = sc.exe query $name 2>&1 | Out-String; Write-V3 "query-final=$($q3.Trim())" }
+          Write-V3 "V3 断言结论: stopOk=$stopOk stopped=$stopped"
           sc.exe delete $name | Out-Null
-          if (-not $stopOk)  { Write-Output "::error::sc stop 被拒（1052 类）——dwControlsAccepted 未含 SERVICE_ACCEPT_STOP"; exit 1 }
-          if (-not $stopped) { Write-Output "::error::服务 5s 内未转 STOPPED（HandlerEx 不可达或停止路径阻塞）"; exit 1 }
+          if (-not $stopOk)  { Write-V3 "FAIL: sc stop 被拒（1052 类）——dwControlsAccepted 未含 SERVICE_ACCEPT_STOP"; exit 1 }
+          if (-not $stopped) { Write-V3 "FAIL: 服务 5s 内未转 STOPPED（HandlerEx 不可达或停止路径阻塞）"; exit 1 }
 
       # v0.4.30：门控 Authenticode 签名（Rust agent.exe + Tauri main.exe，signtool）。
       # 仅当仓库配置 WIN_CODESIGN_PFX(base64) + WIN_CODESIGN_PWD 时签名；缺则跳过、不报错。
@@ -501,7 +514,10 @@ jobs:
           git config user.name "ci-logger"
           git checkout --orphan ci-logs-win
           git rm -rf --cached . 2>$null
-          git add build-main.log
+          # v0.4.44：.gitignore 含 *.log（第 15 行）——裸 git add 一直被忽略、日志从未落地；
+          # 必须 -f 强制加入。v3-assert.log 为 V3 断言步的自诊断输出（失败时存在）。
+          git add -f build-main.log
+          if (Test-Path ".\v3-assert.log") { git add -f .\v3-assert.log }
           git commit -m "windows main build log"
           if ($LASTEXITCODE -ne 0) { Write-Output "::error::commit failed"; exit 1 }
           git push -f "https://x-access-token:${env:YUDUAN_RELEASE_TOKEN}@github.com/g-star1024/YuDuan-release.git" ci-logs-win
