@@ -420,6 +420,41 @@ jobs:
             exit 1
           }
 
+      # v0.4.44：V3 CI 级断言（第 24 轮报告明确要求）——v0.4.40/41 两轮「优雅停止」修复
+      # 文档宣称已收口、实机均无效，真根因是 SERVICE_ACCEPT_STOP 常量写错（0x2，应为 0x1），
+      # SCM 拒收 STOP 报 1052。文档无法自证，改为 CI 级断言：Windows runner 上把刚构建的
+      # yuduan-agent.exe 以服务方式拉起，sc stop 必须 5s 内转 STOPPED；否则构建失败，
+      # 杜绝「修复未经验证就宣称」。
+      - name: V3 断言（服务 STOP 可接受：sc stop 5s 内 STOPPED）
+        working-directory: rust/agent
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $name = 'yuduan-agent-ci'
+          $exe = (Resolve-Path ".\yuduan-agent.exe").Path
+          sc.exe create $name binPath= "`"$exe`"" start= demand | Out-Null
+          if ($LASTEXITCODE -ne 0) { Write-Output "::error::sc create 失败 exit=$LASTEXITCODE"; exit 1 }
+          $t0 = Get-Date
+          sc.exe start $name | Out-Null
+          if ($LASTEXITCODE -ne 0) {
+            Write-Output "::error::sc start 失败 exit=$LASTEXITCODE"
+            sc.exe delete $name | Out-Null
+            exit 1
+          }
+          Start-Sleep -Seconds 3
+          sc.exe stop $name | Out-Null
+          $stopOk = ($LASTEXITCODE -eq 0)
+          $stopped = $false
+          for ($i = 0; $i -lt 10; $i++) {
+            Start-Sleep -Milliseconds 500
+            if (sc.exe query $name | Select-String 'STOPPED') { $stopped = $true; break }
+          }
+          $elapsed = [math]::Round(((Get-Date) - $t0).TotalSeconds, 1)
+          Write-Output "V3 CI 断言: stopOk=$stopOk stopped=$stopped elapsed=${elapsed}s"
+          sc.exe delete $name | Out-Null
+          if (-not $stopOk)  { Write-Output "::error::sc stop 被拒（1052 类）——dwControlsAccepted 未含 SERVICE_ACCEPT_STOP"; exit 1 }
+          if (-not $stopped) { Write-Output "::error::服务 5s 内未转 STOPPED（HandlerEx 不可达或停止路径阻塞）"; exit 1 }
+
       # v0.4.30：门控 Authenticode 签名（Rust agent.exe + Tauri main.exe，signtool）。
       # 仅当仓库配置 WIN_CODESIGN_PFX(base64) + WIN_CODESIGN_PWD 时签名；缺则跳过、不报错。
       # RFC3161 时间戳（DigiCert）保证签名长期有效；无证书的开源构建自动跳过。
