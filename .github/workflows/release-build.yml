@@ -267,13 +267,50 @@ jobs:
 
       # v0.4.10：macOS 主端 ad-hoc 自签名——未签名 app 在较新 macOS（Sequoia+）会报
       # 「已损坏，无法打开」，ad-hoc 签名可消除该误报；仍非 Developer ID 分发级签名
-      # （首开右键打开依旧），免右键需付费开发者账号 + 公证，见 Release 说明。
-      - name: Ad-hoc codesign 主端（app + dmg）
+      # （首开右键打开依旧）。
+      # v0.4.43：门控 Developer ID 签名 + notarytool 公证 + staple——配置以下 Secrets 后
+      # 自动启用，产出免右键双开的分发级 dmg；未配置则回退 ad-hoc（行为与旧版一致）：
+      #   APPLE_CERTIFICATE           Developer ID Application .p12 的 base64
+      #   APPLE_CERTIFICATE_PASSWORD  p12 导出密码
+      #   APPLE_ID / APPLE_PASSWORD(App 专用密码) / APPLE_TEAM_ID
+      - name: codesign 主端（Developer ID 门控，无凭据回退 ad-hoc）
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
-          codesign --force --deep --sign - main/src-tauri/target/release/bundle/macos/*.app
-          codesign --force --deep --sign - main/src-tauri/target/x86_64-apple-darwin/release/bundle/macos/*.app
-          codesign --force --sign - main/src-tauri/target/release/bundle/dmg/*.dmg
-          codesign --force --sign - main/src-tauri/target/x86_64-apple-darwin/release/bundle/dmg/*.dmg
+          APPS="main/src-tauri/target/release/bundle/macos/*.app main/src-tauri/target/x86_64-apple-darwin/release/bundle/macos/*.app"
+          DMGS="main/src-tauri/target/release/bundle/dmg/*.dmg main/src-tauri/target/x86_64-apple-darwin/release/bundle/dmg/*.dmg"
+          if [ -n "${APPLE_CERTIFICATE:-}" ]; then
+            set -e
+            KC=yuduan-build.keychain-db
+            KPWD=yuduan-ci-keychain
+            echo "$APPLE_CERTIFICATE" | python3 -c "import sys,base64;sys.stdout.buffer.write(base64.b64decode(sys.stdin.read()))" > /tmp/yd-devid.p12
+            security create-keychain -p "$KPWD" "$KC" || true
+            security unlock-keychain -p "$KPWD" "$KC"
+            security import /tmp/yd-devid.p12 -k "$KC" -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+            security set-key-partition-list -S apple-tool:,apple: -s -k "$KPWD" "$KC"
+            security list-keychain -d user -s "$KC" $(security list-keychains -d user | tr -d '"')
+            IDENTITY=$(security find-identity -v -p codesigning "$KC" | grep "Developer ID Application" | head -1 | sed -E 's/.*"(.+)".*/\1/')
+            [ -n "$IDENTITY" ] || { echo "::error::keychain 中未找到 Developer ID Application 证书"; exit 1; }
+            echo "IDENTITY=$IDENTITY"
+            for app in $APPS; do codesign --force --deep --sign "$IDENTITY" --options runtime "$app"; done
+            for dmg in $DMGS; do codesign --force --sign "$IDENTITY" "$dmg"; done
+            xcrun notarytool store-credentials yuduan-notary --apple-id "$APPLE_ID" --password "$APPLE_PASSWORD" --team-id "$APPLE_TEAM_ID"
+            for dmg in $DMGS; do
+              xcrun notarytool submit "$dmg" --keychain-profile yuduan-notary --wait
+              xcrun stapler staple "$dmg"
+            done
+            security delete-keychain "$KC" || true
+            rm -f /tmp/yd-devid.p12
+            echo "Developer ID 签名 + 公证 + staple 完成（免右键）"
+          else
+            echo "::warning::未配置 APPLE_CERTIFICATE 等 Secrets，回退 ad-hoc 签名（首开仍需右键）"
+            for app in $APPS; do codesign --force --deep --sign - "$app"; done
+            for dmg in $DMGS; do codesign --force --sign - "$dmg"; done
+          fi
 
       - name: Collect artifacts
         run: |
@@ -321,13 +358,16 @@ jobs:
             exit 1
           }
 
-      - name: Build 主端（Windows exe，免安装器取裸 exe）
+      - name: Build 主端（Windows exe 裸二进制 + NSIS 安装器）
         working-directory: main
         shell: pwsh
         run: |
           npm ci 2>&1 | tee build-main.log
           if ($LASTEXITCODE -ne 0) { exit 1 }
-          npx tauri build --no-bundle 2>&1 | tee -a build-main.log
+          # v0.4.43（N4 后续）：--no-bundle → --bundles nsis。裸 exe 仍在
+          # target/release/yuduan-main.exe（bundling 只追加安装器、不移除裸二进制），
+          # 另产出 bundle/nsis/*-setup.exe 供企业批量静默分发（NSIS 标准 /S 参数）。
+          npx tauri build --bundles nsis 2>&1 | tee -a build-main.log
           if ($LASTEXITCODE -ne 0) {
             Write-Output "==================== error 行（最多 8 条）===================="
             Select-String -Path build-main.log -Pattern "error(\[|:)" | Select-Object -Last 8 | ForEach-Object { Write-Output "::error::$($_.Line.Trim())" }
@@ -408,6 +448,12 @@ jobs:
             & $st sign /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 /f $pfx /p $env:WIN_CODESIGN_PWD $exe
             if ($LASTEXITCODE -ne 0) { Write-Output "::error::signtool 签名失败: $exe"; exit 1 }
           }
+          # v0.4.43：NSIS 安装器一并签名（仍在本门控段内；无证书时整段已跳过）
+          $setup = Get-ChildItem "../main/src-tauri/target/release/bundle/nsis" -Filter "*-setup.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+          if ($setup) {
+            & $st sign /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 /f $pfx /p $env:WIN_CODESIGN_PWD $setup.FullName
+            if ($LASTEXITCODE -ne 0) { Write-Output "::error::signtool 签名失败: $($setup.FullName)"; exit 1 }
+          }
           Remove-Item $pfx -Force
           Write-Output "Authenticode 签名完成（agent + main）"
 
@@ -434,6 +480,7 @@ jobs:
           path: |
             rust/agent/yuduan-agent.exe
             main/src-tauri/target/release/yuduan-main.exe
+            main/src-tauri/target/release/bundle/nsis/*-setup.exe
           if-no-files-found: error
 
   build-linux-agent:
@@ -659,7 +706,8 @@ jobs:
           dmg_x64=$(find dist-out -name "*x64*.dmg" | head -1)
           mainexe=$(find dist-out/windows-client -name "yuduan-main.exe" | head -1)
           agentexe=$(find dist-out/windows-client -name "yuduan-agent.exe" | head -1)
-          echo "dmg_arm=$dmg_arm"; echo "dmg_x64=$dmg_x64"; echo "main=$mainexe"; echo "agent=$agentexe"
+          setupexe=$(find dist-out/windows-client -name "*-setup.exe" | head -1)
+          echo "dmg_arm=$dmg_arm"; echo "dmg_x64=$dmg_x64"; echo "main=$mainexe"; echo "agent=$agentexe"; echo "setup=$setupexe"
           # macOS 产物条件复制：池故障期间 build-macos 不产出，缺文件跳过不挂发布
           if [ -n "$dmg_arm" ]; then cp "$dmg_arm" "release-files/YuDuan-main_${TAG}_macos_arm64.dmg"; else echo "::warning::mac dmg arm 缺席（macOS 池故障），本次 Release 不含该产物"; fi
           if [ -n "$dmg_x64" ]; then cp "$dmg_x64" "release-files/YuDuan-main_${TAG}_macos_x64.dmg"; else echo "::warning::mac dmg x64 缺席"; fi
@@ -668,6 +716,8 @@ jobs:
           mainlinux=$(find dist-out/linux-main -name "yuduan-main" | head -1)
           if [ -n "$mainlinux" ]; then cp "$mainlinux" "release-files/YuDuan-main_${TAG}_linux_amd64"; else echo "::warning::Linux 主端二进制缺席（构建失败/跳过），本次 Release 不含该产物"; fi
           cp "$agentexe" "release-files/YuDuan-agent_${TAG}_windows.exe"
+          # v0.4.43：NSIS 安装器（企业批量静默分发；缺席仅 warning 降级为 15 资产）
+          if [ -n "$setupexe" ]; then cp "$setupexe" "release-files/YuDuan-main_${TAG}_windows_setup.exe"; else echo "::warning::NSIS setup 缺席（构建/上传异常），本次 Release 不含该产物"; fi
           if [ -d dist-out/macos-client ]; then
             cp dist-out/macos-client/yuduan-agent-arm64 "release-files/YuDuan-agent_${TAG}_macos_arm64" || echo "::warning::mac agent arm64 缺席"
             cp dist-out/macos-client/yuduan-agent-x64 "release-files/YuDuan-agent_${TAG}_macos_x64" || echo "::warning::mac agent x64 缺席"
@@ -701,6 +751,7 @@ jobs:
           ## 客户端
           - macOS 主端：YuDuan-main_${TAG}_macos_arm64.dmg（Apple Silicon）/ _macos_x64.dmg（Intel）——ad-hoc 自签名（可消除「已损坏」误报；非 Developer ID 分发级签名，首次打开仍需右键 → 打开；免右键需开发者账号公证，暂缓）
           - Windows 主端：YuDuan-main_${TAG}_windows.exe（免安装，直接运行）
+          - Windows 主端（安装器）：YuDuan-main_${TAG}_windows_setup.exe（NSIS；企业批量静默分发 `setup.exe /S`，/D=x:\dir 自定义目录须置于参数末且不带引号）
           - Linux 主端：YuDuan-main_${TAG}_linux_amd64（裸二进制，chmod +x 后直接运行；需系统预装 libwebkit2gtk-4.1 / libayatana-appindicator3 / librsvg2；桌面 .desktop 集成与依赖打包 .deb/AppImage 待后续版本补齐）
           - Windows 副端：YuDuan-agent_${TAG}_windows.exe（双击即清旧配置+装服务+启动）；macOS 副端：YuDuan-agent_${TAG}_macos_arm64 / _macos_x64（MSVC/Rust 原生构建；局域网内启动后 UDP 自动发现中枢并注册，无需配置；客户自建公网部署须显式 YUDUAN_HUB，见包内 README-deploy.md）
           - Linux 副端：YuDuan-agent_${TAG}_linux_amd64.tar.gz / YuDuan-agent_${TAG}_linux_arm64.tar.gz（systemd 部署，tar 解包 → sudo ./install.sh；std-only 单文件，arm64 为原生 ARM runner 构建）
