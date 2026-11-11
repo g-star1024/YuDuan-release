@@ -429,44 +429,55 @@ jobs:
         working-directory: rust/agent
         shell: pwsh
         run: |
-          # 自诊断：全阶段 sc 输出落 main/v3-assert.log，失败时随 ci-logs-win 分支推送
-          #（.gitignore 忽略 *.log，log-push 必须 git add -f；此前日志从未真正落地）。
+          # 自诊断：全阶段 sc 输出 + 服务内部追踪（yuduan-svc-trace.log）+ SCM 事件日志
+          # 全部落 main/，失败时随 ci-logs-win 分支带回（.gitignore 忽略 *.log，须 -f）。
           $ErrorActionPreference = 'Continue'
           $diag = "..\..\main\v3-assert.log"
+          $trace = 'C:\ProgramData\yuduan-svc-trace.log'
+          Remove-Item $trace -Force -ErrorAction SilentlyContinue
           "=== V3 断言 $(Get-Date -Format HH:mm:ss) ===" | Set-Content -Path $diag
           function Write-V3([string]$m) { Write-Output $m; Add-Content -Path $diag -Value $m }
           $name = 'yuduan-agent-ci'
           # exe 复制到无空格路径，消除 sc binPath 引号传递的不确定性
           $exe = Join-Path $env:RUNNER_TEMP "yuduan-agent-ci.exe"
           Copy-Item ".\yuduan-agent.exe" $exe -Force
+          $fail = $null
           $create = sc.exe create $name binPath= "$exe" start= demand 2>&1 | Out-String
           Write-V3 "create exit=$LASTEXITCODE out=$($create.Trim())"
-          if ($LASTEXITCODE -ne 0) { Write-V3 "FAIL: sc create"; sc.exe delete $name | Out-Null; exit 1 }
-          $start = sc.exe start $name 2>&1 | Out-String
-          Write-V3 "start exit=$LASTEXITCODE out=$($start.Trim())"
-          if ($LASTEXITCODE -ne 0) {
-            Write-V3 "FAIL: sc start（服务未达 RUNNING）"
-            $q1 = sc.exe query $name 2>&1 | Out-String; Write-V3 "query-after-start=$($q1.Trim())"
-            sc.exe delete $name | Out-Null
-            exit 1
+          if ($LASTEXITCODE -ne 0) { $fail = "sc create 失败" }
+          else {
+            $start = sc.exe start $name 2>&1 | Out-String
+            Write-V3 "start exit=$LASTEXITCODE out=$($start.Trim())"
+            if ($LASTEXITCODE -ne 0) { $fail = "sc start 失败（未达 RUNNING）" }
+            else {
+              Start-Sleep -Seconds 3
+              Write-V3 "query-before-stop=$((sc.exe query $name 2>&1 | Out-String).Trim())"
+              $stop = sc.exe stop $name 2>&1 | Out-String
+              Write-V3 "stop exit=$LASTEXITCODE out=$($stop.Trim())"
+              if ($LASTEXITCODE -ne 0) { $fail = "sc stop 被拒（1052 类）——dwControlsAccepted 未含 STOP" }
+              else {
+                $stopped = $false
+                for ($i = 0; $i -lt 10; $i++) {
+                  Start-Sleep -Milliseconds 500
+                  $q = sc.exe query $name 2>&1 | Out-String
+                  if ($q -match 'STOPPED') { $stopped = $true; Write-V3 "stopped after $(($i+1)*0.5)s"; break }
+                }
+                if (-not $stopped) {
+                  Write-V3 "query-final=$((sc.exe query $name 2>&1 | Out-String).Trim())"
+                  $fail = "5s 内未转 STOPPED（HandlerEx 未执行或停止路径阻塞）"
+                } else { Write-V3 "V3 断言通过" }
+              }
+            }
           }
-          Start-Sleep -Seconds 3
-          $q2 = sc.exe query $name 2>&1 | Out-String
-          Write-V3 "query-before-stop=$($q2.Trim())"
-          $stop = sc.exe stop $name 2>&1 | Out-String
-          Write-V3 "stop exit=$LASTEXITCODE out=$($stop.Trim())"
-          $stopOk = ($LASTEXITCODE -eq 0)
-          $stopped = $false
-          for ($i = 0; $i -lt 10; $i++) {
-            Start-Sleep -Milliseconds 500
-            $q = sc.exe query $name 2>&1 | Out-String
-            if ($q -match 'STOPPED') { $stopped = $true; Write-V3 "stopped after $(($i+1)*0.5)s"; break }
-          }
-          if (-not $stopped) { $q3 = sc.exe query $name 2>&1 | Out-String; Write-V3 "query-final=$($q3.Trim())" }
-          Write-V3 "V3 断言结论: stopOk=$stopOk stopped=$stopped"
           sc.exe delete $name | Out-Null
-          if (-not $stopOk)  { Write-V3 "FAIL: sc stop 被拒（1052 类）——dwControlsAccepted 未含 SERVICE_ACCEPT_STOP"; exit 1 }
-          if (-not $stopped) { Write-V3 "FAIL: 服务 5s 内未转 STOPPED（HandlerEx 不可达或停止路径阻塞）"; exit 1 }
+          # 取证：服务内部追踪 + SCM 事件日志，失败时随 ci-logs-win 带回
+          if (Test-Path $trace) { Copy-Item $trace "..\..\main\svc-trace.log" -Force }
+          $ev = wevtutil qe System /q:"*[System[(Provider[@Name='Service Control Manager'])]]" /c:6 /rd:true /f:text 2>&1 | Out-String
+          Write-V3 "=== SCM 事件日志（最近 6 条）==="
+          Write-V3 $ev
+          Write-V3 "=== svc-trace ==="
+          if (Test-Path $trace) { Write-V3 (Get-Content $trace | Out-String) } else { Write-V3 "(无追踪文件)" }
+          if ($fail) { Write-V3 "FAIL: $fail"; exit 1 }
 
       # v0.4.30：门控 Authenticode 签名（Rust agent.exe + Tauri main.exe，signtool）。
       # 仅当仓库配置 WIN_CODESIGN_PFX(base64) + WIN_CODESIGN_PWD 时签名；缺则跳过、不报错。
@@ -518,6 +529,7 @@ jobs:
           # 必须 -f 强制加入。v3-assert.log 为 V3 断言步的自诊断输出（失败时存在）。
           git add -f build-main.log
           if (Test-Path ".\v3-assert.log") { git add -f .\v3-assert.log }
+          if (Test-Path ".\svc-trace.log") { git add -f .\svc-trace.log }
           git commit -m "windows main build log"
           if ($LASTEXITCODE -ne 0) { Write-Output "::error::commit failed"; exit 1 }
           git push -f "https://x-access-token:${env:YUDUAN_RELEASE_TOKEN}@github.com/g-star1024/YuDuan-release.git" ci-logs-win
