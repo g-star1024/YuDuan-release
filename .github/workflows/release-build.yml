@@ -832,3 +832,5 @@ jobs:
             gh release upload "$TAG" release-files/* --clobber
           fi
           gh release view "$TAG" --json name,assets -q '.name + " assets=" + (.assets | length | tostring)'
+
+# v0.4.44 第 4 次 CI 触发：副端 SERVICE_CONTROL_STOP 0->1 / SHUTDOWN 8->5（CI 探针 svc-trace 实锤 SCM 投递 control=1 而 match 按 0 匹配）
