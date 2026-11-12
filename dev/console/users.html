@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>御端 · 用户管理</title>
+  <style>
+    :root { --bg:#f4f5fa; --card:#fff; --line:#e4e7ef; --text:#1f2430; --muted:#6b7280; --brand:#1e3a8a; --ok:#16a34a; --warn:#b45309; --err:#dc2626; }
+    * { box-sizing:border-box; }
+    body { margin:0; font-family:-apple-system,"PingFang SC","Microsoft YaHei",Helvetica,Arial,sans-serif; background:var(--bg); color:var(--text); }
+    header { padding:16px 24px; background:var(--brand); color:#fff; display:flex; align-items:center; justify-content:space-between; }
+    header h1 { font-size:18px; margin:0; font-weight:600; }
+    nav a { color:#fff; margin-left:16px; text-decoration:none; font-size:13px; opacity:.9; }
+    nav a:hover { opacity:1; }
+    header .sub { font-size:12px; opacity:.8; }
+    main { padding:20px 24px; max-width:1100px; margin:0 auto; }
+    .card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:16px; margin-bottom:18px; }
+    .card h2 { font-size:15px; margin:0 0 12px; }
+    .row { display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
+    select, input[type=text], input[type=password], button { padding:8px 10px; border:1px solid var(--line); border-radius:10px; font-size:13px; background:#fff; }
+    button { background:var(--brand); color:#fff; border:none; cursor:pointer; }
+    button:hover { opacity:.92; }
+    button.ghost { background:#fff; color:var(--brand); border:1px solid var(--brand); }
+    button.danger { background:var(--err); }
+    button.warn { background:var(--warn); }
+    table { width:100%; border-collapse:collapse; margin-top:6px; }
+    th, td { text-align:left; padding:10px 12px; font-size:13px; border-bottom:1px solid var(--line); }
+    th { background:#fafbff; color:var(--muted); font-weight:600; }
+    .hint { font-size:12px; color:var(--muted); }
+    .tag { display:inline-block; padding:2px 8px; border-radius:999px; font-size:11px; }
+    .tag-admin { background:#fee2e2; color:#991b1b; }
+    .tag-operator { background:#fef3c7; color:#92400e; }
+    .tag-viewer { background:#e0f2fe; color:#075985; }
+    .tag-off { background:#f3f4f6; color:#6b7280; }
+    #msg { font-size:12px; margin:8px 0; min-height:16px; }
+    #msg.ok { color:var(--ok); }
+    #msg.err { color:var(--err); }
+  </style>
+</head>
+<body>
+  <header>
+    <div><h1>御端 · 用户管理</h1><div class="sub">账号：<span id="user">-</span> · <span id="role">-</span></div></div>
+    <nav><a href="/">资产管理</a><a href="/rc.html">远程控制</a><a href="/software.html">软件分发</a><a href="/audit.html">审计</a><a href="#" id="logout">退出</a></nav>
+  </header>
+  <main>
+    <div class="card">
+      <h2>创建账号（admin）</h2>
+      <div class="row">
+        <input type="text" id="nu" placeholder="用户名" />
+        <input type="text" id="nd" placeholder="显示名（可空）" />
+        <select id="nr"><option value="operator">operator（运维）</option><option value="viewer">viewer（只读）</option><option value="admin">admin（超管）</option></select>
+        <input type="password" id="np" placeholder="初始密码（≥10位，≥3类字符）" />
+        <button id="createBtn">创建</button>
+      </div>
+      <p class="hint">角色：admin 全部权限；operator 运维操作（指令/远控/软件）；viewer 只读。密码强度策略：≥10 位且含大写/小写/数字/符号中至少 3 类。</p>
+      <div id="msg"></div>
+    </div>
+
+    <div class="card">
+      <h2>账号列表</h2>
+      <table>
+        <thead><tr><th>用户名</th><th>显示名</th><th>角色</th><th>状态</th><th>来源</th><th style="width:360px">操作</th></tr></thead>
+        <tbody id="users"><tr><td colspan="6" class="hint">加载中…</td></tr></tbody>
+      </table>
+    </div>
+  </main>
+
+  <script src="auth.js"></script>
+  <script>
+    const msg = document.getElementById('msg');
+    function say(t, ok){ msg.textContent = t; msg.className = ok ? 'ok' : 'err'; if (ok) setTimeout(()=>{msg.textContent='';}, 2500); }
+
+    async function refresh() {
+      const d = await api('/api/v1/admin/users');
+      const rows = (d.users || []).map(u => {
+        const roleTag = `<span class="tag tag-${u.role}">${u.role}</span>`;
+        const st = u.disabled ? '<span class="tag tag-off">已禁用</span>'
+              : (u.must_change_password ? '<span class="tag tag-operator">待改密</span>' : '<span class="tag" style="background:#dcfce7;color:#166534">正常</span>');
+        const btns = u.disabled
+          ? `<button class="ghost" onclick="act('${u.username}','enable')">启用</button>`
+          : `<button class="ghost" onclick="act('${u.username}','disable')">禁用</button>`;
+        return `<tr>
+          <td>${u.username}</td><td>${u.display_name || '-'}</td><td>${roleTag}</td><td>${st}</td><td>${u.source || 'local'}</td>
+          <td>
+            <button class="ghost" onclick="changeRole('${u.username}')">改角色</button>
+            <button class="ghost" onclick="resetPw('${u.username}')">重置密码</button>
+            <button class="warn" onclick="act('${u.username}','force-password-change')">强制改密</button>
+            ${btns}
+          </td></tr>`;
+      }).join('');
+      document.getElementById('users').innerHTML = rows || '<tr><td colspan="6" class="hint">暂无账号</td></tr>';
+    }
+
+    async function act(name, action) {
+      const r = await api('/api/v1/admin/users/' + encodeURIComponent(name) + '/' + action, { method:'POST' });
+      if (r.code === 0) { say(action + ' 成功', true); refresh(); }
+      else say(r.message || '失败', false);
+    }
+
+    async function changeRole(name) {
+      const role = prompt('设置角色（admin/operator/viewer）：', 'operator');
+      if (!role) return;
+      const r = await api('/api/v1/admin/users/' + encodeURIComponent(name) + '/role',
+        { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ role }) });
+      if (r.code === 0) { say('角色已更新', true); refresh(); }
+      else say(r.message || '失败', false);
+    }
+
+    async function resetPw(name) {
+      const pw = prompt('输入新密码（≥10位，≥3类字符）：');
+      if (!pw) return;
+      const r = await api('/api/v1/admin/users/' + encodeURIComponent(name) + '/reset-password',
+        { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ password: pw }) });
+      if (r.code === 0) { say('密码已重置', true); refresh(); }
+      else say(r.message || '失败', false);
+    }
+
+    document.getElementById('createBtn').onclick = async () => {
+      const u = document.getElementById('nu').value.trim();
+      const pw = document.getElementById('np').value;
+      if (!u) { say('用户名必填', false); return; }
+      if (!pw || pw.length < 10) { say('密码至少 10 位', false); return; }
+      const r = await api('/api/v1/admin/users',
+        { method:'POST', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({ username: u, display_name: document.getElementById('nd').value.trim(), role: document.getElementById('nr').value, password: pw }) });
+      if (r.code === 0) { say('账号 ' + u + ' 已创建', true); document.getElementById('np').value=''; refresh(); }
+      else say(r.message || '失败', false);
+    };
+
+    refresh();
+  </script>
+</body>
+</html>

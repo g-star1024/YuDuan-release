@@ -1,0 +1,13 @@
+[1794465760138] pid=2488 service_main enter ctrl_stop=1 ctrl_shutdown=5 accept_stop=1
+[1794465760139] pid=2488 handler registered
+[1794465760139] pid=2488 report state=2 ok=1
+[1794465760140] pid=2488 report state=4 ok=1
+[1794465760140] pid=2488 RUNNING reported, spawning worker
+[1794465760140] pid=2488 worker spawned OK
+[1794465760141] pid=2488 service_main returning (dispatcher thread free)
+[1794465763166] pid=2488 handle_ex control=1 received
+[1794465763166] pid=2488 STOP branch enter ctrl=1 (stop=1 shutdown=5)
+[1794465763167] pid=2488 STOP: flag set
+[1794465763167] pid=2488 STOP: interrupt_active_session done
+[1794465763170] pid=2488 report state=1 ok=1
+[1794465763170] pid=2488 STOP: STOPPED reported

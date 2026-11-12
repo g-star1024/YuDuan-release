@@ -1,0 +1,34 @@
+=== N10 断言 06:42:44 ===
+create(yuduan-agent) exit=0 out=[SC] CreateService SUCCESS
+install-over-existing exit=0 took=0s
+[agent] 安装服务：yuduan-agent (bin="D:\a\_temp\yuduan-agent-ci.exe")
+[agent] 服务已存在：就地复用并更新配置（binPath/显示名/自启），未删除服务对象（零标记删除等待）
+[agent] 已设置失败恢复策略：失败后 5 秒自动重启（断联/崩溃守卫）
+[agent] 服务 yuduan-agent 安装成功（开机自启 + 失败自动重启）
+qc=[SC] QueryServiceConfig SUCCESS
+
+SERVICE_NAME: yuduan-agent
+        TYPE               : 10  WIN32_OWN_PROCESS 
+        START_TYPE         : 2   AUTO_START
+        ERROR_CONTROL      : 1   NORMAL
+        BINARY_PATH_NAME   : "D:\a\_temp\yuduan-agent-ci.exe"
+        LOAD_ORDER_GROUP   : 
+        TAG                : 0
+        DISPLAY_NAME       : YuDuan Agent
+        DEPENDENCIES       : 
+        SERVICE_START_NAME : LocalSystem
+start exit=0
+uninstall exit=0 took=8.9s
+[agent] 卸载服务：yuduan-agent
+[agent] 已清理残留 yuduan-agent-ci.exe 进程（含用户会话远控助手）
+[agent] 等待服务名从「标记删除」中释放…（2s / 8s）
+[agent] 等待服务名从「标记删除」中释放…（4s / 8s）
+[agent] 等待服务名从「标记删除」中释放…（6s / 8s）
+[agent] 等待服务名从「标记删除」中释放…（8s / 8s）
+[agent] 服务已删除，但 SCM 仍未释放「标记删除」名称（超过 8s）。这是 Windows 异步回收，不影响本次卸载结果；如需立即重装，重跑安装器即可（自动重试会处理）。
+[agent] 服务 yuduan-agent 已卸载
+query-after=[SC] EnumQueryServicesStatus:OpenService FAILED 1060:
+
+The specified service does not exist as an installed service.
+N10 断言通过（复用安装 0s · 卸载 8.9s）
+PASS

@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>御端 · 软件分发（M5 演示）</title>
+  <style>
+    :root { --bg:#f4f5fa; --card:#fff; --line:#e4e7ef; --text:#1f2430; --muted:#6b7280; --brand:#1e3a8a; --ok:#16a34a; }
+    * { box-sizing:border-box; }
+    body { margin:0; font-family:-apple-system,"PingFang SC","Microsoft YaHei",Helvetica,Arial,sans-serif; background:var(--bg); color:var(--text); }
+    header { padding:16px 24px; background:var(--brand); color:#fff; display:flex; align-items:center; justify-content:space-between; }
+    header h1 { font-size:18px; margin:0; font-weight:600; }
+    nav a { color:#fff; margin-left:16px; text-decoration:none; font-size:13px; opacity:.9; }
+    nav a:hover { opacity:1; }
+    header .sub { font-size:12px; opacity:.8; }
+    main { padding:20px 24px; max-width:1100px; margin:0 auto; }
+    .card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:16px; margin-bottom:18px; }
+    .card h2 { font-size:15px; margin:0 0 12px; }
+    .row { display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
+    select, input[type=text], button { padding:8px 10px; border:1px solid var(--line); border-radius:10px; font-size:13px; background:#fff; }
+    button { background:var(--brand); color:#fff; border:none; cursor:pointer; }
+    button:hover { opacity:.92; }
+    table { width:100%; border-collapse:collapse; margin-top:6px; }
+    th, td { text-align:left; padding:10px 12px; font-size:13px; border-bottom:1px solid var(--line); }
+    th { background:#fafbff; color:var(--muted); font-weight:600; }
+    pre { background:#0f172a; color:#e2e8f0; padding:12px; border-radius:10px; font-size:12px; max-height:200px; overflow:auto; white-space:pre-wrap; }
+    .hint { font-size:12px; color:var(--muted); }
+  </style>
+</head>
+<body>
+  <header>
+    <div><h1>御端 · 软件分发</h1><div class="sub">操作员：<span id="role">-</span></div></div>
+    <nav><a href="/">资产管理</a><a href="/rc.html">远程控制</a><a href="/audit.html">审计</a><a href="#" id="logout">退出</a></nav>
+  </header>
+  <main>
+    <div class="card">
+      <h2>上传软件包到仓库</h2>
+      <div class="row">
+        <input type="text" id="name" placeholder="软件名称，如 Chrome" />
+        <input type="text" id="version" placeholder="版本，如 1.0.0" />
+        <select id="platform"><option value="any">任意平台</option><option value="windows">Windows</option><option value="macos">macOS</option><option value="linux">Linux</option></select>
+        <input type="file" id="file" />
+        <button id="uploadBtn">上传</button>
+      </div>
+      <p class="hint">演示：可上传任意文件（如 .zip 测试包）。Agent 下载后按平台静默安装/解包并回报状态。</p>
+    </div>
+
+    <div class="card">
+      <h2>软件仓库与分发</h2>
+      <div id="repoWrap"><div class="hint">加载中…</div></div>
+    </div>
+
+    <div class="card">
+      <h2>下发结果</h2>
+      <pre id="out">—</pre>
+    </div>
+  </main>
+
+  <script src="auth.js"></script>
+  <script>
+    const out = document.getElementById('out');
+    function show(v){ out.textContent = (typeof v === 'string') ? v : JSON.stringify(v, null, 2); }
+
+    document.getElementById('uploadBtn').onclick = async () => {
+      const fd = new FormData();
+      fd.append('name', document.getElementById('name').value);
+      fd.append('version', document.getElementById('version').value);
+      fd.append('platform', document.getElementById('platform').value);
+      const f = document.getElementById('file').files[0];
+      if (!f) { alert('请选择文件'); return; }
+      fd.append('file', f);
+      show('上传中…');
+      const r = await api('/api/v1/software', { method:'POST', body: fd });
+      show(r);
+      refreshRepo();
+    };
+
+    async function refreshRepo() {
+      const data = await api('/api/v1/software');
+      const dev = await api('/api/v1/devices');
+      const devOpts = (dev.devices||[]).map(d => `<option value="${d.id}">${d.hostname} (${d.os})</option>`).join('');
+      const rows = (data.items||[]).map(it => `
+        <tr>
+          <td>${it.name}</td><td>${it.version}</td><td>${it.platform}</td><td>${it.file_name}</td><td>${it.size} B</td>
+          <td>
+            <select id="dev-${it.id}"><option value="">选择设备…</option>${devOpts}</select>
+            <button onclick="push('${it.id}')">分发</button>
+          </td>
+        </tr>`).join('');
+      document.getElementById('repoWrap').innerHTML = rows
+        ? `<table><thead><tr><th>名称</th><th>版本</th><th>平台</th><th>文件</th><th>大小</th><th>分发</th></tr></thead><tbody>${rows}</tbody></table>`
+        : '<div class="hint">仓库为空，请先上传。</div>';
+    }
+
+    window.push = async (swid) => {
+      const id = document.getElementById('dev-'+swid).value;
+      if (!id) { alert('请选择目标设备'); return; }
+      show('分发中…');
+      const r = await api(`/api/v1/devices/${id}/push`, {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ software_id: swid })
+      });
+      show(r);
+    };
+
+    refreshRepo();
+    setInterval(refreshRepo, 5000);
+  </script>
+</body>
+</html>

@@ -1,0 +1,154 @@
+{
+  "generated_at": "2026-10-23T08:57:04Z",
+  "root": "/Users/huluobo/WorkBuddy/jiankong",
+  "components": [
+    {
+      "ecosystem": "std",
+      "name": "go-stdlib",
+      "version": "1.26",
+      "direct": true
+    },
+    {
+      "ecosystem": "std",
+      "name": "rust-stdlib",
+      "version": "edition2021",
+      "direct": true
+    }
+  ],
+  "findings": [
+    {
+      "severity": "warn",
+      "category": "ffi",
+      "file": "rust/agent/src/rc.rs",
+      "line": 34,
+      "detail": "FFI 外部函数接口（需评审：参数封送/生命周期）"
+    },
+    {
+      "severity": "warn",
+      "category": "ffi",
+      "file": "rust/agent/src/rc.rs",
+      "line": 98,
+      "detail": "FFI 外部函数接口（需评审：参数封送/生命周期）"
+    },
+    {
+      "severity": "warn",
+      "category": "ffi",
+      "file": "rust/agent/src/rc.rs",
+      "line": 107,
+      "detail": "FFI 外部函数接口（需评审：参数封送/生命周期）"
+    },
+    {
+      "severity": "warn",
+      "category": "unsafe",
+      "file": "rust/agent/src/rc.rs",
+      "line": 342,
+      "detail": "unsafe {"
+    },
+    {
+      "severity": "warn",
+      "category": "unsafe",
+      "file": "rust/agent/src/rc.rs",
+      "line": 403,
+      "detail": "unsafe {"
+    },
+    {
+      "severity": "warn",
+      "category": "unsafe",
+      "file": "rust/agent/src/rc.rs",
+      "line": 499,
+      "detail": "unsafe {"
+    },
+    {
+      "severity": "warn",
+      "category": "unsafe",
+      "file": "rust/agent/src/rc.rs",
+      "line": 602,
+      "detail": "unsafe fn key_input(vk: u16, down: bool) -\u003e win32::INPUT {"
+    },
+    {
+      "severity": "warn",
+      "category": "ffi",
+      "file": "rust/agent/src/tamper.rs",
+      "line": 211,
+      "detail": "FFI 外部函数接口（需评审：参数封送/生命周期）"
+    },
+    {
+      "severity": "warn",
+      "category": "unsafe",
+      "file": "rust/agent/src/tamper.rs",
+      "line": 218,
+      "detail": "unsafe { ptrace(PT_TRACE_ME, 0, std::ptr::null_mut(), 0) \u003c 0 }"
+    },
+    {
+      "severity": "warn",
+      "category": "ffi",
+      "file": "rust/agent/src/tamper.rs",
+      "line": 224,
+      "detail": "FFI 外部函数接口（需评审：参数封送/生命周期）"
+    },
+    {
+      "severity": "warn",
+      "category": "unsafe",
+      "file": "rust/agent/src/tamper.rs",
+      "line": 227,
+      "detail": "unsafe { IsDebuggerPresent() != 0 }"
+    },
+    {
+      "severity": "warn",
+      "category": "credential",
+      "file": "dev/internal/auth/auth.go",
+      "line": 68,
+      "detail": "secret = \"yuduan-dev-secret\""
+    },
+    {
+      "severity": "info",
+      "category": "credential",
+      "file": "dev/internal/directory/ldap_test.go",
+      "line": 14,
+      "detail": "Password = \"Alice@2026\" (测试文件)"
+    },
+    {
+      "severity": "info",
+      "category": "credential",
+      "file": "dev/internal/directory/ldap_test.go",
+      "line": 15,
+      "detail": "Password = \"Bob@2026\" (测试文件)"
+    },
+    {
+      "severity": "info",
+      "category": "credential",
+      "file": "dev/internal/directory/ldap_test.go",
+      "line": 16,
+      "detail": "Password = \"Carol@2026\" (测试文件)"
+    },
+    {
+      "severity": "info",
+      "category": "credential",
+      "file": "dev/internal/directory/ldap_test.go",
+      "line": 17,
+      "detail": "Password = \"Dave@2026\" (测试文件)"
+    },
+    {
+      "severity": "info",
+      "category": "credential",
+      "file": "dev/internal/directory/ldap_test.go",
+      "line": 18,
+      "detail": "Password = \"Eve@2026\" (测试文件)"
+    },
+    {
+      "severity": "warn",
+      "category": "credential",
+      "file": "rust/agent/src/secure.rs",
+      "line": 169,
+      "detail": "secret = \"diagsecret\""
+    },
+    {
+      "severity": "warn",
+      "category": "credential",
+      "file": "rust/agent/src/secure.rs",
+      "line": 192,
+      "detail": "secret = \"diagsecret\""
+    }
+  ],
+  "verdict": "PASS(with notes): 零第三方依赖；14 项需安全评审（unsafe/ffi/credential）"
+}

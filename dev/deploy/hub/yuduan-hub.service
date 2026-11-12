@@ -1,0 +1,40 @@
+# 御端中枢 systemd 服务单元
+# 安装：见同目录 install.sh（自动放到 /etc/systemd/system 并 enable）
+# 配置：/etc/yuduan-hub/env（EnvironmentFile，逐行 KEY=VALUE）
+
+[Unit]
+Description=YuDuan Hub (御端中枢) - 终端统一管理控制平面
+Documentation=https://github.com/g-star1024/YuDuan
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=yuduan-hub
+Group=yuduan-hub
+EnvironmentFile=/etc/yuduan-hub/env
+WorkingDirectory=/var/lib/yuduan-hub
+ExecStart=/usr/local/bin/yuduan-hub
+Restart=on-failure
+RestartSec=5
+
+# —— 安全加固（systemd 沙箱）——
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/lib/yuduan-hub
+RestrictAddressFamilies=AF_INET AF_INET6
+RestrictSUIDSGID=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+MemoryDenyWriteExecute=true
+
+# —— 资源与日志 ——
+LimitNOFILE=65536
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=yuduan-hub
+
+[Install]
+WantedBy=multi-user.target
