@@ -529,8 +529,13 @@ jobs:
             }
           }
           sc.exe delete yuduan-agent | Out-Null
+          # v0.4.45 fix2：pwsh shell 包装会在脚本尾追加 exit $LASTEXITCODE——上一条
+          # 原生命令 sc.exe delete（服务已不存在）返回 1060，把本该 PASS 的步骤打成
+          # failure（第二轮 CI 实锤：断言全过、PASS 已打印，步骤仍 failure）。
+          # 显式 exit 0/1 收尾，杜绝包装尾随退出码。
           if ($fail) { Write-N10 "FAIL: $fail"; exit 1 }
-          else { Write-N10 "PASS" }
+          Write-N10 "PASS"
+          exit 0
 
       # v0.4.30：门控 Authenticode 签名（Rust agent.exe + Tauri main.exe，signtool）。
       # 仅当仓库配置 WIN_CODESIGN_PFX(base64) + WIN_CODESIGN_PWD 时签名；缺则跳过、不报错。
@@ -891,3 +896,4 @@ jobs:
 # v0.4.44 第 5 次 CI 触发：STOP 分支重排(flag/interrupt 先行)+常量回显探针
 # v0.4.45：N10 断言步（install 复用 ≤5s / uninstall ≤10s）+ 失败日志 n10-assert.log
 # v0.4.45 第 2 次 CI：N10 断言步修 LASTEXITCODE 覆写 bug（产品行为实锤正确：复用 0s/卸载 8.9s）
+# v0.4.45 第 3 次 CI：N10 步尾显式 exit 0/1（pwsh 包装尾随 LASTEXITCODE=1060 实锤）
