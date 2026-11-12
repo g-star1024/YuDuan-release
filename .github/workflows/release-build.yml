@@ -502,12 +502,13 @@ jobs:
           else {
             $t0 = Get-Date
             $o = & $exe --install 2>&1 | Out-String
+            $instExit = $LASTEXITCODE   # v0.4.45 fix：立即捕获——后续 sc.exe 会覆写 $LASTEXITCODE
             $dt = ((Get-Date) - $t0).TotalSeconds
-            Write-N10 "install-over-existing exit=$LASTEXITCODE took=$([math]::Round($dt,1))s"
+            Write-N10 "install-over-existing exit=$instExit took=$([math]::Round($dt,1))s"
             Write-N10 $o.Trim()
             $qc = sc.exe qc yuduan-agent 2>&1 | Out-String
             Write-N10 "qc=$($qc.Trim())"
-            if ($LASTEXITCODE -ne 0 -or $dt -gt 5) { $fail = "--install 未就地复用或耗时 $([math]::Round($dt,1))s（目标 ≤5s）" }
+            if ($instExit -ne 0 -or $dt -gt 5) { $fail = "--install 未就地复用或耗时 $([math]::Round($dt,1))s（目标 ≤5s）" }
             elseif ($qc -notmatch [regex]::Escape($exe)) { $fail = "就地复用未更新 binPath" }
             else {
               # —— b) --uninstall 计时 ≤10s（停服务→清残留→删除→释放等待 ≤8s 默认）
@@ -516,12 +517,13 @@ jobs:
               Start-Sleep -Seconds 3
               $t1 = Get-Date
               $o2 = & $exe --uninstall 2>&1 | Out-String
+              $unExit = $LASTEXITCODE     # 立即捕获（首轮 CI 实锤：sc query 1060 覆写致误判 FAIL）
               $dt2 = ((Get-Date) - $t1).TotalSeconds
-              Write-N10 "uninstall exit=$LASTEXITCODE took=$([math]::Round($dt2,1))s"
+              Write-N10 "uninstall exit=$unExit took=$([math]::Round($dt2,1))s"
               Write-N10 $o2.Trim()
               $q2 = sc.exe query yuduan-agent 2>&1 | Out-String
               Write-N10 "query-after=$($q2.Trim())"
-              if ($LASTEXITCODE -ne 0 -or $dt2 -gt 10) { $fail = "--uninstall 耗时 $([math]::Round($dt2,1))s（目标 ≤10s）" }
+              if ($unExit -ne 0 -or $dt2 -gt 10) { $fail = "--uninstall 耗时 $([math]::Round($dt2,1))s（目标 ≤10s）" }
               elseif ($q2 -match 'RUNNING') { $fail = "卸载后服务仍 RUNNING" }
               else { Write-N10 "N10 断言通过（复用安装 $([math]::Round($dt,1))s · 卸载 $([math]::Round($dt2,1))s）" }
             }
@@ -888,3 +890,4 @@ jobs:
 # v0.4.44 第 4 次 CI 触发：副端 SERVICE_CONTROL_STOP 0->1 / SHUTDOWN 8->5（CI 探针 svc-trace 实锤 SCM 投递 control=1 而 match 按 0 匹配）
 # v0.4.44 第 5 次 CI 触发：STOP 分支重排(flag/interrupt 先行)+常量回显探针
 # v0.4.45：N10 断言步（install 复用 ≤5s / uninstall ≤10s）+ 失败日志 n10-assert.log
+# v0.4.45 第 2 次 CI：N10 断言步修 LASTEXITCODE 覆写 bug（产品行为实锤正确：复用 0s/卸载 8.9s）
