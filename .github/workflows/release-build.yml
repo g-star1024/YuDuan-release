@@ -479,6 +479,57 @@ jobs:
           if (Test-Path $trace) { Write-V3 (Get-Content $trace | Out-String) } else { Write-V3 "(无追踪文件)" }
           if ($fail) { Write-V3 "FAIL: $fail"; exit 1 }
 
+      # v0.4.45（N10，第二十五轮实测报告）：卸载/重装曾是 77~78s——根因 SCM「标记删除」
+      # 释放等待（默认 60s）。修复=①install 就地复用（服务已存在→ChangeServiceConfig
+      # 更新 binPath，零 DeleteService）；②卸载默认等待 60s→8s。CI 级断言把发布质量门
+      # 固化（报告建议②）：a) 服务已存在时 --install 就地复用 ≤5s 且 binPath 已更新；
+      # b) --uninstall ≤10s（报告建议①）。
+      - name: N10 断言（install 就地复用 ≤5s · uninstall ≤10s）
+        working-directory: rust/agent
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $diag = "..\..\main\n10-assert.log"
+          "=== N10 断言 $(Get-Date -Format HH:mm:ss) ===" | Set-Content -Path $diag
+          function Write-N10([string]$m) { Write-Output $m; Add-Content -Path $diag -Value $m }
+          $exe = Join-Path $env:RUNNER_TEMP "yuduan-agent-ci.exe"
+          if (-not (Test-Path $exe)) { Copy-Item ".\yuduan-agent.exe" $exe -Force }
+          $fail = $null
+          # —— a) 服务已存在 → --install 必须就地复用（零删除、更新 binPath）
+          $c = sc.exe create yuduan-agent binPath= "$exe" start= demand 2>&1 | Out-String
+          Write-N10 "create(yuduan-agent) exit=$LASTEXITCODE out=$($c.Trim())"
+          if ($LASTEXITCODE -ne 0) { $fail = "预置 yuduan-agent 服务失败" }
+          else {
+            $t0 = Get-Date
+            $o = & $exe --install 2>&1 | Out-String
+            $dt = ((Get-Date) - $t0).TotalSeconds
+            Write-N10 "install-over-existing exit=$LASTEXITCODE took=$([math]::Round($dt,1))s"
+            Write-N10 $o.Trim()
+            $qc = sc.exe qc yuduan-agent 2>&1 | Out-String
+            Write-N10 "qc=$($qc.Trim())"
+            if ($LASTEXITCODE -ne 0 -or $dt -gt 5) { $fail = "--install 未就地复用或耗时 $([math]::Round($dt,1))s（目标 ≤5s）" }
+            elseif ($qc -notmatch [regex]::Escape($exe)) { $fail = "就地复用未更新 binPath" }
+            else {
+              # —— b) --uninstall 计时 ≤10s（停服务→清残留→删除→释放等待 ≤8s 默认）
+              $s = sc.exe start yuduan-agent 2>&1 | Out-String
+              Write-N10 "start exit=$LASTEXITCODE"
+              Start-Sleep -Seconds 3
+              $t1 = Get-Date
+              $o2 = & $exe --uninstall 2>&1 | Out-String
+              $dt2 = ((Get-Date) - $t1).TotalSeconds
+              Write-N10 "uninstall exit=$LASTEXITCODE took=$([math]::Round($dt2,1))s"
+              Write-N10 $o2.Trim()
+              $q2 = sc.exe query yuduan-agent 2>&1 | Out-String
+              Write-N10 "query-after=$($q2.Trim())"
+              if ($LASTEXITCODE -ne 0 -or $dt2 -gt 10) { $fail = "--uninstall 耗时 $([math]::Round($dt2,1))s（目标 ≤10s）" }
+              elseif ($q2 -match 'RUNNING') { $fail = "卸载后服务仍 RUNNING" }
+              else { Write-N10 "N10 断言通过（复用安装 $([math]::Round($dt,1))s · 卸载 $([math]::Round($dt2,1))s）" }
+            }
+          }
+          sc.exe delete yuduan-agent | Out-Null
+          if ($fail) { Write-N10 "FAIL: $fail"; exit 1 }
+          else { Write-N10 "PASS" }
+
       # v0.4.30：门控 Authenticode 签名（Rust agent.exe + Tauri main.exe，signtool）。
       # 仅当仓库配置 WIN_CODESIGN_PFX(base64) + WIN_CODESIGN_PWD 时签名；缺则跳过、不报错。
       # RFC3161 时间戳（DigiCert）保证签名长期有效；无证书的开源构建自动跳过。
@@ -530,6 +581,7 @@ jobs:
           git add -f build-main.log
           if (Test-Path ".\v3-assert.log") { git add -f .\v3-assert.log }
           if (Test-Path ".\svc-trace.log") { git add -f .\svc-trace.log }
+          if (Test-Path ".\n10-assert.log") { git add -f .\n10-assert.log }
           git commit -m "windows main build log"
           if ($LASTEXITCODE -ne 0) { Write-Output "::error::commit failed"; exit 1 }
           git push -f "https://x-access-token:${env:YUDUAN_RELEASE_TOKEN}@github.com/g-star1024/YuDuan-release.git" ci-logs-win
@@ -835,3 +887,4 @@ jobs:
 
 # v0.4.44 第 4 次 CI 触发：副端 SERVICE_CONTROL_STOP 0->1 / SHUTDOWN 8->5（CI 探针 svc-trace 实锤 SCM 投递 control=1 而 match 按 0 匹配）
 # v0.4.44 第 5 次 CI 触发：STOP 分支重排(flag/interrupt 先行)+常量回显探针
+# v0.4.45：N10 断言步（install 复用 ≤5s / uninstall ≤10s）+ 失败日志 n10-assert.log
