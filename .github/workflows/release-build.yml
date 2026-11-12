@@ -897,3 +897,4 @@ jobs:
 # v0.4.45：N10 断言步（install 复用 ≤5s / uninstall ≤10s）+ 失败日志 n10-assert.log
 # v0.4.45 第 2 次 CI：N10 断言步修 LASTEXITCODE 覆写 bug（产品行为实锤正确：复用 0s/卸载 8.9s）
 # v0.4.45 第 3 次 CI：N10 步尾显式 exit 0/1（pwsh 包装尾随 LASTEXITCODE=1060 实锤）
+# v0.4.46：主端 UI 整改（侧栏纯图标收起态 + 设置中心三列分组）
