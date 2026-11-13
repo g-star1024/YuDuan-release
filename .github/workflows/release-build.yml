@@ -483,8 +483,10 @@ jobs:
       # 释放等待（默认 60s）。修复=①install 就地复用（服务已存在→ChangeServiceConfig
       # 更新 binPath，零 DeleteService）；②卸载默认等待 60s→8s。CI 级断言把发布质量门
       # 固化（报告建议②）：a) 服务已存在时 --install 就地复用 ≤5s 且 binPath 已更新；
-      # b) --uninstall ≤10s（报告建议①）。
-      - name: N10 断言（install 就地复用 ≤5s · uninstall ≤10s）
+      # b) --uninstall ≤10s（报告建议①）；c) v0.4.49（N20，第二十七轮报告）：--setup
+      # 全周期 ≤40s——本地实测删后重建 16s/重装周期 25s，阈值容忍 runner 波动，
+      # 核心是捕获「标记删除 >60s 窗口」回归（复用逻辑若退化会撞 60s+）。
+      - name: N10 断言（install 复用 ≤5s · uninstall ≤10s · setup 全周期 ≤40s）
         working-directory: rust/agent
         shell: pwsh
         run: |
@@ -525,7 +527,21 @@ jobs:
               Write-N10 "query-after=$($q2.Trim())"
               if ($unExit -ne 0 -or $dt2 -gt 10) { $fail = "--uninstall 耗时 $([math]::Round($dt2,1))s（目标 ≤10s）" }
               elseif ($q2 -match 'RUNNING') { $fail = "卸载后服务仍 RUNNING" }
-              else { Write-N10 "N10 断言通过（复用安装 $([math]::Round($dt,1))s · 卸载 $([math]::Round($dt2,1))s）" }
+              else {
+                # —— c) v0.4.49（N20，第二十七轮报告）：--setup 全周期 ≤40s。
+                #    setup=stop-only+复用接管，删后重建走全新 install；阈值 40s 容忍
+                #    runner 波动，撞 60s+ 即「标记删除窗口」回归（复用逻辑退化信号）。
+                $t2 = Get-Date
+                $o3 = & $exe --setup 2>&1 | Out-String
+                $setupExit = $LASTEXITCODE   # 立即捕获（后续 sc query 会覆写）
+                $dt3 = ((Get-Date) - $t2).TotalSeconds
+                Write-N10 "setup-full-cycle exit=$setupExit took=$([math]::Round($dt3,1))s"
+                Write-N10 $o3.Trim()
+                $q3 = sc.exe query yuduan-agent 2>&1 | Out-String
+                Write-N10 "query-after-setup=$($q3.Trim())"
+                if ($setupExit -ne 0 -or $dt3 -gt 40) { $fail = "--setup 全周期 $([math]::Round($dt3,1))s（阈值 ≤40s；撞 60s+ 即复用逻辑退化）" }
+                else { Write-N10 "N10 断言通过（复用安装 $([math]::Round($dt,1))s · 卸载 $([math]::Round($dt2,1))s · setup 全周期 $([math]::Round($dt3,1))s）" }
+              }
             }
           }
           sc.exe delete yuduan-agent | Out-Null
