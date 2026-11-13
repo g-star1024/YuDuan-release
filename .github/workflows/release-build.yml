@@ -489,8 +489,15 @@ jobs:
       - name: N10 断言（install 复用 ≤5s · uninstall ≤10s · setup 全周期 ≤40s）
         working-directory: rust/agent
         shell: pwsh
+        # v0.4.50：副端 --uninstall 新增卸载密码门。CI fresh runner 无 guard 文件，
+        # 由 env YUDUAN_UNINSTALL_PWD 走「缺失/损坏 → env 直通恢复」应急路径，
+        # 保证 b) --uninstall ≤10s 断言不受密码门影响（--install / --setup 不挂门控）。
+        env:
+          CI_UNINSTALL_PWD: ci-uninstall-test-pwd-v0450
         run: |
           $ErrorActionPreference = 'Continue'
+          # v0.4.50：把 workflow 注入的测试口令转成本地进程 env，供 exe --uninstall 门控读取。
+          $env:YUDUAN_UNINSTALL_PWD = $env:CI_UNINSTALL_PWD
           $diag = "..\..\main\n10-assert.log"
           "=== N10 断言 $(Get-Date -Format HH:mm:ss) ===" | Set-Content -Path $diag
           function Write-N10([string]$m) { Write-Output $m; Add-Content -Path $diag -Value $m }
@@ -914,3 +921,4 @@ jobs:
 # v0.4.45 第 2 次 CI：N10 断言步修 LASTEXITCODE 覆写 bug（产品行为实锤正确：复用 0s/卸载 8.9s）
 # v0.4.45 第 3 次 CI：N10 步尾显式 exit 0/1（pwsh 包装尾随 LASTEXITCODE=1060 实锤）
 # v0.4.46：主端 UI 整改（侧栏纯图标收起态 + 设置中心三列分组）
+# v0.4.50：N10 断言步注入 YUDUAN_UNINSTALL_PWD（适配副端卸载密码门，保住 ≤10s 断言）
