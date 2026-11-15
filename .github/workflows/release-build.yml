@@ -337,6 +337,27 @@ jobs:
           ref: ${{ inputs.source_ref || github.ref_name }}
           token: ${{ secrets.YUDUAN_RELEASE_TOKEN }}
 
+      # v0.4.53（N39）：部署器参数绑定冒烟——空串/0 值边界参数在 PS 5.1 宿主（powershell.exe，
+      # 与 deploy.bat 实际宿主一致）下必须仍能完成参数绑定并以 -SelfTest 零副作用退出。
+      # 要点：① 不引 secrets（天然满足「if: 禁引 secrets」铁律）；② $LASTEXITCODE 立即捕获；
+      # ③ 末尾显式 exit 0——pwsh 步骤尾随 $LASTEXITCODE 会把 PASS 打成 failure（下方 N10 有实锤注释）；
+      # ④ -SelfTest 在业务校验之前 exit，参数只需可绑定不需通过业务校验（0.0.0-smoke 仅占位）。
+      - name: 部署器参数绑定冒烟（N39 -SelfTest + 空串/0 值边界）
+        working-directory: dev/deploy/hub
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          # $args 是 PS 自动变量，改用 $bindArgs 规避歧义；@(...) 内换行合法（逗号后续行）。
+          $bindArgs = @('-SelfTest','-NonInteractive','-AlertWecomUrl','',
+                        '-AlertSmtpHost','smtp.example.com',
+                        '-AlertSmtpPort','0','-AlertMinSeverity','0','-AlertSilenceSecs','0','-AlertSmtpTo','',
+                        '-DiscoveryPort','18242','-BuildVersion','0.0.0-smoke')
+          powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\register-task.ps1 @bindArgs
+          $rc = $LASTEXITCODE
+          if ($rc -ne 0) { Write-Output "::error::-SelfTest 参数绑定冒烟失败 exit=$rc"; exit 1 }
+          Write-Output "N39 -SelfTest 参数绑定冒烟 PASS（PS 5.1 宿主）"
+          exit 0
+
       - uses: actions/setup-node@v4
         with:
           node-version: 22
