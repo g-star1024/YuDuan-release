@@ -1,0 +1,452 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>御端 YuDuan - 企业终端统一管理平台</title>
+<meta name="description" content="御端 YuDuan：面向企业 IT 运维的终端统一管理平台。设备资产台账、远程协助、软件分发、合规告警、RBAC 与审计防篡改，Windows / macOS / Linux 三平台全覆盖。">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cpath d='M32 4 L56 14 V30 C56 46 46 56 32 60 C18 56 8 46 8 30 V14 Z' fill='%230B1F3A'/%3E%3Cpath d='M32 12 L48 18.5 V30.5 C48 42 41 49.5 32 52.5 C23 49.5 16 42 16 30.5 V18.5 Z' fill='none' stroke='%2322D3EE' stroke-width='3'/%3E%3Ctext x='32' y='40' font-size='22' font-family='serif' fill='%23FFFFFF' text-anchor='middle'%3E御%3C/text%3E%3C/svg%3E">
+<style>
+:root{
+  --navy:#0B1F3A; --navy-2:#122B4E; --navy-3:#0E2440;
+  --cyan:#22D3EE; --cyan-dark:#0891B2;
+  --ink:#0F172A; --muted:#5B6B82; --muted-dark:#9DB2CC;
+  --bg-light:#F5F8FC; --line:#E3EAF3;
+  --radius:14px;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Hiragino Sans GB","Microsoft YaHei","Segoe UI",Roboto,sans-serif;color:var(--ink);background:#fff;line-height:1.6;-webkit-font-smoothing:antialiased}
+a{text-decoration:none;color:inherit}
+img,svg{display:block;max-width:100%}
+.wrap{max-width:1120px;margin:0 auto;padding:0 24px}
+
+/* ---------- Nav ---------- */
+.nav{position:sticky;top:0;z-index:100;background:rgba(11,31,58,.92);backdrop-filter:blur(10px);border-bottom:1px solid rgba(255,255,255,.08)}
+.nav-inner{display:flex;align-items:center;justify-content:space-between;height:64px}
+.logo{display:flex;align-items:center;gap:10px;color:#fff;font-weight:700;font-size:18px;letter-spacing:.5px}
+.logo svg{width:30px;height:30px}
+.logo .en{color:var(--cyan);font-weight:600;font-size:15px;margin-left:2px}
+.nav-links{display:flex;align-items:center;gap:28px}
+.nav-links a{color:#C8D6E8;font-size:14.5px;transition:color .2s}
+.nav-links a:hover{color:var(--cyan)}
+.btn-nav{background:var(--cyan);color:var(--navy)!important;padding:8px 16px;border-radius:8px;font-weight:600;font-size:14px!important;transition:background .2s}
+.btn-nav:hover{background:#67E8F9;color:var(--navy)!important}
+.nav-toggle{display:none}
+.hamburger{display:none;cursor:pointer;padding:8px}
+.hamburger span{display:block;width:22px;height:2px;background:#fff;margin:5px 0;border-radius:2px;transition:.3s}
+
+/* ---------- Hero ---------- */
+.hero{position:relative;background:linear-gradient(160deg,#0B1F3A 0%,#122B4E 55%,#0C2947 100%);color:#fff;padding:96px 0 110px;overflow:hidden}
+.hero::before{content:"";position:absolute;inset:0;background-image:
+  linear-gradient(rgba(34,211,238,.05) 1px,transparent 1px),
+  linear-gradient(90deg,rgba(34,211,238,.05) 1px,transparent 1px);
+  background-size:44px 44px;pointer-events:none}
+.hero::after{content:"";position:absolute;width:560px;height:560px;right:-160px;top:-160px;border-radius:50%;
+  background:radial-gradient(circle,rgba(34,211,238,.14),transparent 65%);pointer-events:none}
+.hero .wrap{position:relative;z-index:2}
+.badge{display:inline-flex;align-items:center;gap:10px;background:rgba(34,211,238,.12);border:1px solid rgba(34,211,238,.35);color:var(--cyan);font-size:13px;padding:6px 14px;border-radius:999px;font-weight:500}
+.badge .dot{width:7px;height:7px;border-radius:50%;background:var(--cyan);box-shadow:0 0 8px var(--cyan)}
+.hero h1{font-size:46px;line-height:1.25;font-weight:800;margin:22px 0 18px;letter-spacing:1px}
+.hero h1 .hl{color:var(--cyan)}
+.hero p.sub{font-size:18px;color:#B9C9DE;max-width:640px;margin-bottom:36px}
+.cta-row{display:flex;gap:16px;flex-wrap:wrap}
+.btn{display:inline-flex;align-items:center;gap:8px;padding:13px 26px;border-radius:10px;font-size:15.5px;font-weight:600;transition:.2s;cursor:pointer}
+.btn-primary{background:var(--cyan);color:var(--navy)}
+.btn-primary:hover{background:#67E8F9;transform:translateY(-1px)}
+.btn-ghost{border:1px solid rgba(255,255,255,.3);color:#fff}
+.btn-ghost:hover{border-color:var(--cyan);color:var(--cyan)}
+.hero-meta{margin-top:40px;display:flex;gap:26px;flex-wrap:wrap;color:#8FA6C0;font-size:13.5px}
+.hero-meta span{display:inline-flex;align-items:center;gap:7px}
+.hero-meta svg{width:15px;height:15px;stroke:var(--cyan)}
+
+/* ---------- Section base ---------- */
+section{padding:88px 0}
+.sec-head{text-align:center;max-width:680px;margin:0 auto 56px}
+.sec-tag{color:var(--cyan-dark);font-size:13.5px;font-weight:700;letter-spacing:3px}
+.sec-head h2{font-size:34px;font-weight:800;color:var(--ink);margin:12px 0 14px}
+.sec-head p{color:var(--muted);font-size:16px}
+.light{background:var(--bg-light)}
+
+/* ---------- Capability cards ---------- */
+.cards{display:grid;grid-template-columns:repeat(3,1fr);gap:24px}
+.card{background:#fff;border:1px solid var(--line);border-radius:var(--radius);padding:30px 28px;transition:.25s}
+.card:hover{transform:translateY(-4px);box-shadow:0 14px 34px rgba(11,31,58,.10);border-color:rgba(34,211,238,.5)}
+.card .icon{width:52px;height:52px;border-radius:12px;background:linear-gradient(135deg,rgba(34,211,238,.15),rgba(34,211,238,.05));display:flex;align-items:center;justify-content:center;margin-bottom:20px}
+.card .icon svg{width:28px;height:28px;stroke:var(--cyan-dark)}
+.card h3{font-size:18.5px;font-weight:700;margin-bottom:10px;color:var(--navy)}
+.card p{font-size:14.5px;color:var(--muted)}
+
+/* ---------- Architecture ---------- */
+.arch-figure{background:#fff;border:1px solid var(--line);border-radius:var(--radius);padding:36px 28px;box-shadow:0 8px 30px rgba(11,31,58,.06)}
+.arch-figure svg{width:100%;height:auto}
+.arch-notes{display:flex;gap:20px;justify-content:center;flex-wrap:wrap;margin-top:26px}
+.arch-notes span{font-size:13.5px;color:var(--muted);display:inline-flex;align-items:center;gap:8px;background:#fff;border:1px solid var(--line);border-radius:999px;padding:7px 16px}
+.arch-notes b{color:var(--navy);font-weight:600}
+
+/* ---------- Deploy steps ---------- */
+.steps{display:grid;grid-template-columns:repeat(3,1fr);gap:24px;counter-reset:step}
+.step{position:relative;background:#fff;border:1px solid var(--line);border-radius:var(--radius);padding:34px 28px 28px}
+.step::before{counter-increment:step;content:"0" counter(step);position:absolute;top:-18px;left:28px;background:var(--navy);color:var(--cyan);font-weight:800;font-size:15px;padding:8px 14px;border-radius:10px;letter-spacing:1px}
+.step .icon{width:46px;height:46px;border-radius:11px;background:linear-gradient(135deg,rgba(34,211,238,.15),rgba(34,211,238,.05));display:flex;align-items:center;justify-content:center;margin:6px 0 18px}
+.step .icon svg{width:25px;height:25px;stroke:var(--cyan-dark)}
+.step h3{font-size:17.5px;font-weight:700;color:var(--navy);margin-bottom:10px}
+.step p{font-size:14.5px;color:var(--muted)}
+.step code{background:var(--bg-light);border:1px solid var(--line);border-radius:5px;padding:1px 7px;font-size:12.5px;color:var(--cyan-dark);font-family:"SF Mono",Consolas,monospace}
+
+/* ---------- Security ---------- */
+.dark{background:linear-gradient(160deg,#0B1F3A,#122B4E);color:#fff}
+.dark .sec-head h2{color:#fff}
+.dark .sec-head p{color:#9DB2CC}
+.dark .sec-tag{color:var(--cyan)}
+.sec-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:22px}
+.sec-item{display:flex;gap:15px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);border-radius:12px;padding:22px 22px;transition:.25s}
+.sec-item:hover{border-color:rgba(34,211,238,.5);background:rgba(34,211,238,.07)}
+.sec-item svg{width:24px;height:24px;stroke:var(--cyan);flex-shrink:0;margin-top:3px}
+.sec-item h4{font-size:15.5px;font-weight:700;margin-bottom:6px;color:#fff}
+.sec-item p{font-size:13.5px;color:#9DB2CC}
+
+/* ---------- Download ---------- */
+.dl-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:24px}
+.dl-card{background:#fff;border:1px solid var(--line);border-radius:var(--radius);padding:30px 28px;display:flex;flex-direction:column;transition:.25s}
+.dl-card:hover{box-shadow:0 14px 34px rgba(11,31,58,.10);border-color:rgba(34,211,238,.5)}
+.dl-card .icon{width:50px;height:50px;border-radius:12px;background:linear-gradient(135deg,rgba(34,211,238,.15),rgba(34,211,238,.05));display:flex;align-items:center;justify-content:center;margin-bottom:18px}
+.dl-card .icon svg{width:27px;height:27px;stroke:var(--cyan-dark)}
+.dl-card h3{font-size:18px;font-weight:700;color:var(--navy)}
+.dl-card .role{font-size:13px;color:var(--cyan-dark);font-weight:600;margin:4px 0 16px}
+.dl-card ul{list-style:none;margin-bottom:22px;flex:1}
+.dl-card li{font-size:13px;color:var(--muted);padding:6px 0;border-bottom:1px dashed var(--line);font-family:"SF Mono",Consolas,Menlo,monospace}
+.dl-card li:last-child{border-bottom:none}
+.btn-dl{display:block;text-align:center;background:var(--navy);color:#fff;padding:12px;border-radius:10px;font-weight:600;font-size:14.5px;transition:.2s}
+.btn-dl:hover{background:var(--cyan-dark)}
+.dl-note{text-align:center;margin-top:36px;color:var(--muted);font-size:14px}
+.dl-note b{color:var(--navy)}
+
+/* ---------- Footer ---------- */
+footer{background:var(--navy);color:#8FA6C0;padding:44px 0;font-size:14px}
+.foot-inner{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:18px}
+.foot-links{display:flex;gap:24px;flex-wrap:wrap}
+.foot-links a{color:#B9C9DE;transition:color .2s}
+.foot-links a:hover{color:var(--cyan)}
+.ver-chip{background:rgba(34,211,238,.12);border:1px solid rgba(34,211,238,.35);color:var(--cyan);font-size:12.5px;padding:4px 12px;border-radius:999px;font-weight:600}
+
+/* ---------- Mobile ---------- */
+@media (max-width:920px){
+  .cards,.steps,.sec-grid,.dl-grid{grid-template-columns:repeat(2,1fr)}
+  .hero h1{font-size:36px}
+}
+@media (max-width:680px){
+  .nav-links{position:absolute;top:64px;left:0;right:0;background:var(--navy-3);flex-direction:column;align-items:flex-start;padding:18px 24px 24px;gap:16px;display:none;border-bottom:1px solid rgba(255,255,255,.1)}
+  .nav-toggle:checked ~ .nav-links{display:flex}
+  .hamburger{display:block}
+  .nav-toggle:checked ~ .hamburger span:nth-child(1){transform:translateY(7px) rotate(45deg)}
+  .nav-toggle:checked ~ .hamburger span:nth-child(2){opacity:0}
+  .nav-toggle:checked ~ .hamburger span:nth-child(3){transform:translateY(-7px) rotate(-45deg)}
+  .cards,.steps,.sec-grid,.dl-grid{grid-template-columns:1fr}
+  section{padding:64px 0}
+  .hero{padding:72px 0 80px}
+  .hero h1{font-size:30px}
+  .hero p.sub{font-size:16px}
+  .sec-head h2{font-size:26px}
+}
+</style>
+</head>
+<body>
+
+<!-- ======== 导航 ======== -->
+<nav class="nav">
+  <div class="wrap nav-inner">
+    <a class="logo" href="#top">
+      <svg viewBox="0 0 64 64" fill="none"><path d="M32 4 L56 14 V30 C56 46 46 56 32 60 C18 56 8 46 8 30 V14 Z" fill="#22D3EE" opacity=".16"/><path d="M32 6 L54 15 V30 C54 44.5 44.7 53.8 32 57.6 C19.3 53.8 10 44.5 10 30 V15 Z" stroke="#22D3EE" stroke-width="3"/><path d="M22 31.5 L29 38.5 L42 24" stroke="#22D3EE" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      御端 <span class="en">YuDuan</span>
+    </a>
+    <input type="checkbox" id="nav-toggle" class="nav-toggle">
+    <label for="nav-toggle" class="hamburger" aria-label="菜单"><span></span><span></span><span></span></label>
+    <div class="nav-links">
+      <a href="#features">产品</a>
+      <a href="#arch">架构</a>
+      <a href="#deploy">部署</a>
+      <a href="#download">下载</a>
+      <a class="btn-nav" href="https://github.com/g-star1024/YuDuan-release/releases" target="_blank" rel="noopener">GitHub Releases</a>
+    </div>
+  </div>
+</nav>
+
+<!-- ======== Hero ======== -->
+<header class="hero" id="top">
+  <div class="wrap">
+    <span class="badge"><span class="dot"></span>v0.4.56 · Windows / macOS / Linux 全平台支持</span>
+    <h1>企业终端，一台面板<br><span class="hl">全部管住</span></h1>
+    <p class="sub">面向企业 IT 运维的终端统一管理平台：设备资产清点、远程协助、软件下发、合规告警，千台级终端尽收一处。</p>
+    <div class="cta-row">
+      <a class="btn btn-primary" href="https://github.com/g-star1024/YuDuan-release/releases" target="_blank" rel="noopener">
+        <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        下载最新版
+      </a>
+      <a class="btn btn-ghost" href="#deploy">
+        <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+        查看部署方式
+      </a>
+    </div>
+    <div class="hero-meta">
+      <span><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>设备资产台账</span>
+      <span><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>远程协助与屏幕控制</span>
+      <span><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>软件仓库静默分发</span>
+      <span><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>合规基线与告警外送</span>
+    </div>
+  </div>
+</header>
+
+<!-- ======== 核心能力 ======== -->
+<section id="features">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="sec-tag">核心能力</div>
+      <h2>一台管理面板，覆盖终端运维全链路</h2>
+      <p>中枢 + 主端 + 副端三组件协同，IT 运维在主端集中管理千台级企业终端。</p>
+    </div>
+    <div class="cards">
+      <div class="card">
+        <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="13" rx="2"/><line x1="2" y1="20" x2="22" y2="20"/><line x1="7" y1="9" x2="12" y2="9"/><line x1="7" y1="12" x2="17" y2="12"/></svg></div>
+        <h3>设备资产台账</h3>
+        <p>硬件、软件、网络与安全状态自动采集，形成持续更新的资产台账；资产变更全程留痕，时间线可追溯每一台设备的配置演化。</p>
+      </div>
+      <div class="card">
+        <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="13" height="11" rx="2"/><path d="M17 8h3a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-6a2 2 0 0 1-2-2v-3"/><line x1="2" y1="18" x2="9" y2="18"/></svg></div>
+        <h3>远程协助</h3>
+        <p>屏幕查看与控制、独立视窗、会话文件传输与录像；支持远端强制提示与权限分级审批，协助过程全程可审计。</p>
+      </div>
+      <div class="card">
+        <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/><path d="M8 3h8"/></svg></div>
+        <h3>软件分发</h3>
+        <p>内置软件仓库，向指定终端批量静默安装；分发状态实时追踪，安装成功、失败、等待一目了然，无需逐台操作。</p>
+      </div>
+      <div class="card">
+        <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg></div>
+        <h3>合规与告警</h3>
+        <p>合规基线扫描持续评估终端安全状态；告警支持多通道外送：Webhook（HMAC-SHA256 签名 + 幂等 ID）、企业微信、SMTP 邮件。</p>
+      </div>
+      <div class="card">
+        <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><polyline points="9 12 11 14 15 10"/></svg></div>
+        <h3>安全内建</h3>
+        <p>RBAC 三角色权限、审计链 + 库外防篡改锚、设备密钥 attestation、副端卸载密码门、HMAC 签名防重放，安全不是插件而是底座。</p>
+      </div>
+      <div class="card">
+        <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg></div>
+        <h3>一键部署</h3>
+        <p>部署器一键拉起中枢，-SelfTest 自检快速定位环境问题；端口独占绑定与回退、公网模式 TLS + ACME 证书自动续期。</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ======== 架构 ======== -->
+<section id="arch" class="light">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="sec-tag">系统架构</div>
+      <h2>三组件协同，链路全程加密</h2>
+      <p>主端（管理客户端）— 中枢 hub（服务端）— 副端（终端驻留服务），最小化攻击面，全链路 TLS + HMAC 签名。</p>
+    </div>
+    <div class="arch-figure">
+      <svg viewBox="0 0 960 460" xmlns="http://www.w3.org/2000/svg" font-family="-apple-system,'PingFang SC','Microsoft YaHei',sans-serif">
+        <defs>
+          <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#22D3EE"/></marker>
+          <marker id="arrg" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#8FA6C0"/></marker>
+        </defs>
+        <!-- LAN / 公网 分区 -->
+        <rect x="30" y="30" width="900" height="180" rx="14" fill="#F5F8FC" stroke="#E3EAF3"/>
+        <text x="52" y="60" font-size="14" font-weight="700" fill="#0B1F3A">内网 LAN 模式</text>
+        <text x="160" y="60" font-size="12" fill="#5B6B82">UDP 自动发现 · 无需公网</text>
+        <rect x="30" y="240" width="900" height="190" rx="14" fill="#F5F8FC" stroke="#E3EAF3"/>
+        <text x="52" y="270" font-size="14" font-weight="700" fill="#0B1F3A">公网模式（可选）</text>
+        <text x="185" y="270" font-size="12" fill="#5B6B82">TLS + ACME 证书自动续期 · 跨分支机构</text>
+
+        <!-- 主端 -->
+        <g>
+          <rect x="70" y="90" width="200" height="100" rx="12" fill="#0B1F3A"/>
+          <rect x="70" y="90" width="200" height="100" rx="12" fill="none" stroke="#22D3EE" stroke-opacity=".4"/>
+          <text x="170" y="128" font-size="17" font-weight="800" fill="#fff" text-anchor="middle">主端 main</text>
+          <text x="170" y="152" font-size="12" fill="#9DB2CC" text-anchor="middle">Tauri · Rust + React</text>
+          <text x="170" y="172" font-size="12" fill="#22D3EE" text-anchor="middle">IT 运维管理客户端</text>
+        </g>
+
+        <!-- 中枢 -->
+        <g>
+          <rect x="380" y="80" width="220" height="120" rx="12" fill="#0B1F3A"/>
+          <rect x="380" y="80" width="220" height="120" rx="12" fill="none" stroke="#22D3EE" stroke-opacity=".55" stroke-width="1.5"/>
+          <text x="490" y="118" font-size="17" font-weight="800" fill="#fff" text-anchor="middle">中枢 hub</text>
+          <text x="490" y="142" font-size="12" fill="#9DB2CC" text-anchor="middle">Go + PostgreSQL</text>
+          <text x="490" y="164" font-size="11.5" fill="#22D3EE" text-anchor="middle">指令 · 遥测 · 资产 · 告警</text>
+          <text x="490" y="184" font-size="11.5" fill="#22D3EE" text-anchor="middle">审计锚 · RBAC · 会话安全</text>
+        </g>
+
+        <!-- 副端 ×N -->
+        <g>
+          <rect x="700" y="90" width="200" height="100" rx="12" fill="#0B1F3A"/>
+          <rect x="700" y="90" width="200" height="100" rx="12" fill="none" stroke="#22D3EE" stroke-opacity=".4"/>
+          <text x="800" y="128" font-size="17" font-weight="800" fill="#fff" text-anchor="middle">副端 agent × N</text>
+          <text x="800" y="152" font-size="12" fill="#9DB2CC" text-anchor="middle">Rust 系统服务</text>
+          <text x="800" y="172" font-size="12" fill="#22D3EE" text-anchor="middle">员工电脑 · 千台级</text>
+        </g>
+
+        <!-- 连线 LAN -->
+        <line x1="270" y1="140" x2="374" y2="140" stroke="#22D3EE" stroke-width="2" marker-end="url(#arr)" marker-start="url(#arr)"/>
+        <text x="322" y="128" font-size="11.5" fill="#0891B2" text-anchor="middle" font-weight="600">WebSocket + TLS</text>
+        <line x1="606" y1="140" x2="694" y2="140" stroke="#22D3EE" stroke-width="2" marker-end="url(#arr)" marker-start="url(#arr)"/>
+        <text x="650" y="128" font-size="11.5" fill="#0891B2" text-anchor="middle" font-weight="600">心跳 30s</text>
+
+        <!-- 公网副端 -->
+        <g>
+          <rect x="700" y="300" width="200" height="100" rx="12" fill="#122B4E"/>
+          <rect x="700" y="300" width="200" height="100" rx="12" fill="none" stroke="#8FA6C0" stroke-opacity=".5"/>
+          <text x="800" y="338" font-size="16" font-weight="800" fill="#fff" text-anchor="middle">分支机构终端</text>
+          <text x="800" y="362" font-size="12" fill="#9DB2CC" text-anchor="middle">副端经公网接入</text>
+          <text x="800" y="382" font-size="12" fill="#22D3EE" text-anchor="middle">同一中枢统一管理</text>
+        </g>
+        <line x1="606" y1="360" x2="694" y2="360" stroke="#8FA6C0" stroke-width="2" stroke-dasharray="7 5" marker-end="url(#arrg)" marker-start="url(#arrg)"/>
+        <text x="650" y="348" font-size="11.5" fill="#8FA6C0" text-anchor="middle" font-weight="600">wss 加密接入</text>
+        <!-- 中枢到公网区 -->
+        <line x1="490" y1="206" x2="490" y2="296" stroke="#8FA6C0" stroke-width="2" stroke-dasharray="7 5" marker-end="url(#arrg)"/>
+        <text x="503" y="255" font-size="11.5" fill="#8FA6C0" font-weight="600">ACME 自动续期证书</text>
+        <!-- 主端到公网区提示 -->
+        <text x="170" y="330" font-size="11.5" fill="#8FA6C0" text-anchor="middle">主端同样经 TLS 登录中枢</text>
+      </svg>
+    </div>
+    <div class="arch-notes">
+      <span><b>WebSocket + TLS</b> 传输加密</span>
+      <span><b>HMAC 签名</b> 防篡改防重放</span>
+      <span><b>心跳 30s</b> 在线状态感知</span>
+      <span><b>中继远控</b> 屏幕查看与控制</span>
+      <span><b>PostgreSQL</b> 持久化存储</span>
+    </div>
+  </div>
+</section>
+
+<!-- ======== 部署三步 ======== -->
+<section id="deploy">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="sec-tag">快速部署</div>
+      <h2>三步上线，当天可用</h2>
+      <p>从空服务器到千台终端纳管，一条最短路径。</p>
+    </div>
+    <div class="steps">
+      <div class="step">
+        <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/><path d="M6 7h6M6 11h10"/></svg></div>
+        <h3>① 中枢一键部署</h3>
+        <p>解压发布包运行部署器即可：Windows 计划任务 / macOS launchd / Linux systemd。内置 <code>-SelfTest</code> 自检，配置问题当场暴露；公网模式自动签发并续期 TLS 证书。</p>
+      </div>
+      <div class="step">
+        <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></div>
+        <h3>② 副端零配置注册</h3>
+        <p>在员工电脑上安装副端服务（Windows Service / macOS launchd / Linux systemd），UDP 自动发现中枢，无需手工填写服务器地址；安装后自动完成设备密钥注册与 attestation。</p>
+      </div>
+      <div class="step">
+        <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="13" rx="2"/><path d="M8 21h8M12 17v4"/><path d="M6 9l3 2-3 2"/><path d="M12 13h5"/></svg></div>
+        <h3>③ 主端登录接管</h3>
+        <p>IT 运维在主端登录中枢，终端在线状态、资产台账、软件分发与告警事件即时报表呈现；按角色授权后即可发起远程协助或批量下发软件。</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ======== 安全要点 ======== -->
+<section id="security" class="dark">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="sec-tag">安全设计</div>
+      <h2>安全内建于底座，而非事后补丁</h2>
+      <p>从传输、身份到审计，每一层都有明确的防线。</p>
+    </div>
+    <div class="sec-grid">
+      <div class="sec-item">
+        <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+        <div><h4>RBAC 三角色</h4><p>管理员 / 运维 / 审计员分级授权，高危操作（如远控、分发）按角色约束。</p></div>
+      </div>
+      <div class="sec-item">
+        <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+        <div><h4>审计链防篡改</h4><p>操作审计形成哈希链，并定期写入库外 append-only 锚文件，离线即可核验完整性。</p></div>
+      </div>
+      <div class="sec-item">
+        <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="10" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+        <div><h4>传输签名防重放</h4><p>全链路 TLS 之上叠加 HMAC 请求签名与幂等 ID，防篡改、防重放。</p></div>
+      </div>
+      <div class="sec-item">
+        <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="10" rx="2"/><path d="M7 11V7a5 5 0 0 1 9.9-1"/></svg>
+        <div><h4>副端卸载密码门</h4><p>员工无法随意卸载或删除副端服务，退出需持有卸载密码，保障纳管覆盖。</p></div>
+      </div>
+      <div class="sec-item">
+        <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><circle cx="12" cy="11" r="2.5"/></svg>
+        <div><h4>设备密钥 attestation</h4><p>每台副端持有独立设备密钥并上报二进制度量，主端可见设备「证明态」与公钥指纹。</p></div>
+      </div>
+      <div class="sec-item">
+        <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+        <div><h4>会话安全</h4><p>服务端会话表统一管理登录态，支持吊销与空闲超时，离岗即失效。</p></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ======== 下载 ======== -->
+<section id="download" class="light">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="sec-tag">下载安装</div>
+      <h2>选择你的平台组件</h2>
+      <p>全部产物均随版本在 GitHub Releases 发布，附带离线整合包。</p>
+    </div>
+    <div class="dl-grid">
+      <div class="dl-card">
+        <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg></div>
+        <h3>主端 main</h3>
+        <div class="role">IT 运维管理客户端 · Tauri</div>
+        <ul>
+          <li>YuDuan-main_*_macos.dmg</li>
+          <li>YuDuan-main_*_windows.exe</li>
+          <li>YuDuan-main_*_windows_setup.exe</li>
+        </ul>
+        <a class="btn-dl" href="https://github.com/g-star1024/YuDuan-release/releases" target="_blank" rel="noopener">前往 Releases 下载</a>
+      </div>
+      <div class="dl-card">
+        <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="6" rx="2"/><line x1="6" y1="8" x2="6.01" y2="8"/><line x1="6" y1="17" x2="6.01" y2="17"/></svg></div>
+        <h3>中枢 hub</h3>
+        <div class="role">服务端 · Go + PostgreSQL</div>
+        <ul>
+          <li>YuDuan-hub_*_linux.tar.gz</li>
+          <li>YuDuan-hub_*_windows.zip</li>
+          <li>YuDuan-offline-bundle_*.tar.gz</li>
+        </ul>
+        <a class="btn-dl" href="https://github.com/g-star1024/YuDuan-release/releases" target="_blank" rel="noopener">前往 Releases 下载</a>
+      </div>
+      <div class="dl-card">
+        <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><line x1="9" y1="1" x2="9" y2="4"/><line x1="15" y1="1" x2="15" y2="4"/><line x1="9" y1="20" x2="9" y2="23"/><line x1="15" y1="20" x2="15" y2="23"/><line x1="20" y1="9" x2="23" y2="9"/><line x1="20" y1="15" x2="23" y2="15"/><line x1="1" y1="9" x2="4" y2="9"/><line x1="1" y1="15" x2="4" y2="15"/></svg></div>
+        <h3>副端 agent</h3>
+        <div class="role">终端驻留服务 · Rust</div>
+        <ul>
+          <li>YuDuan-agent_*_windows.exe</li>
+          <li>YuDuan-agent_*_linux.tar.gz</li>
+          <li>三平台系统服务形态</li>
+        </ul>
+        <a class="btn-dl" href="https://github.com/g-star1024/YuDuan-release/releases" target="_blank" rel="noopener">前往 Releases 下载</a>
+      </div>
+    </div>
+    <p class="dl-note">当前版本 <b>v0.4.56</b> · 16 个发布产物 · 文件名以 Releases 页实际列表为准</p>
+  </div>
+</section>
+
+<!-- ======== 页脚 ======== -->
+<footer>
+  <div class="wrap foot-inner">
+    <div>© 2026 YuDuan · 企业终端统一管理平台</div>
+    <div class="foot-links">
+      <a href="https://github.com/g-star1024/YuDuan-release" target="_blank" rel="noopener">源码与发布说明</a>
+      <a href="https://github.com/g-star1024/YuDuan-release/releases" target="_blank" rel="noopener">部署文档</a>
+      <a href="#top">回到顶部</a>
+    </div>
+    <span class="ver-chip">v0.4.56</span>
+  </div>
+</footer>
+
+</body>
+</html>
